@@ -1,291 +1,449 @@
 #!/usr/bin/env python3
 """
-AIMovie Cloud 启动脚本
-云端版本 - 使用云端API服务
+AIMovie 主启动脚本
+支持多种大模型组合配置的云端版本
+Version: 2.0.0 Final
 """
 
 import os
 import sys
 import subprocess
 import time
-import requests
+import logging
+import signal
 from pathlib import Path
+from typing import Optional, Dict, Any
+import multiprocessing as mp
 
-def print_banner():
-    """打印启动横幅"""
-    banner = """
-    ╔══════════════════════════════════════════════════════════════╗
-    ║                    🌐 AIMovie Cloud                          ║
-    ║                AI视频解说生成器 - 云端版                      ║
-    ║                                                              ║
-    ║  🌟 高性价比云端API组合                                       ║
-    ║  💰 成本透明，按需付费                                        ║
-    ║  🚀 无需GPU，云端处理                                         ║
-    ║                                                              ║
-    ║  Version: 2.0.0 (Cloud Edition)                             ║
-    ╚══════════════════════════════════════════════════════════════╝
-    """
-    print(banner)
+# 添加项目根目录到路径
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
+
+from src.config.preset_configs import preset_manager, PresetType
+from src.config.cloud_settings import get_cloud_settings
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('logs/startup.log', encoding='utf-8')
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# 全局进程列表
+processes = []
+
+
+def signal_handler(signum, frame):
+    """信号处理器，优雅关闭所有进程"""
+    logger.info("接收到关闭信号，正在关闭所有服务...")
+    for process in processes:
+        if process.poll() is None:  # 进程仍在运行
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+    logger.info("所有服务已关闭")
+    sys.exit(0)
+
 
 def check_python_version():
     """检查Python版本"""
-    print("🔍 检查Python版本...")
     if sys.version_info < (3, 8):
-        print("❌ 需要Python 3.8或更高版本")
-        print(f"   当前版本: {sys.version}")
+        logger.error("需要Python 3.8或更高版本")
+        sys.exit(1)
+    logger.info(f"Python版本: {sys.version}")
+
+
+def check_dependencies():
+    """检查并自动安装依赖包"""
+    required_packages = [
+        'fastapi', 'uvicorn', 'streamlit', 'requests', 
+        'python-dotenv', 'pydantic', 'aiofiles'
+    ]
+    
+    missing_packages = []
+    for package in required_packages:
+        try:
+            # 特殊处理包名映射
+            import_name = package
+            if package == 'python-dotenv':
+                import_name = 'dotenv'
+            elif package == 'uvicorn':
+                import_name = 'uvicorn'
+            else:
+                import_name = package.replace('-', '_')
+            
+            __import__(import_name)
+        except ImportError:
+            missing_packages.append(package)
+    
+    if missing_packages:
+        logger.warning(f"缺少依赖包: {', '.join(missing_packages)}")
+        logger.info("正在自动安装缺失的依赖包...")
+        
+        # 尝试自动安装依赖
+        if install_dependencies():
+            logger.info("依赖包安装完成，重新检查...")
+            # 重新检查依赖
+            still_missing = []
+            for package in missing_packages:
+                try:
+                    # 特殊处理包名映射
+                    import_name = package
+                    if package == 'python-dotenv':
+                        import_name = 'dotenv'
+                    elif package == 'uvicorn':
+                        import_name = 'uvicorn'
+                    else:
+                        import_name = package.replace('-', '_')
+                    
+                    __import__(import_name)
+                except ImportError:
+                    still_missing.append(package)
+            
+            if still_missing:
+                logger.error(f"以下依赖包安装失败: {', '.join(still_missing)}")
+                logger.info("请手动安装缺失的依赖包")
+                sys.exit(1)
+        else:
+            logger.error("自动安装依赖失败")
+            sys.exit(1)
+    
+    logger.info("依赖包检查通过")
+
+
+def install_dependencies():
+    """自动安装依赖包"""
+    try:
+        # 检查可用的requirements文件
+        req_files = []
+        if Path('requirements_cloud_minimal.txt').exists():
+            req_files.append('requirements_cloud_minimal.txt')
+        if Path('requirements_cloud.txt').exists():
+            req_files.append('requirements_cloud.txt')
+        if Path('requirements.txt').exists():
+            req_files.append('requirements.txt')
+        
+        if req_files:
+            # 优先使用最小化依赖文件
+            req_file = req_files[0]
+            logger.info(f"使用依赖文件: {req_file}")
+            
+            # 安装依赖
+            result = subprocess.run([
+                sys.executable, "-m", "pip", "install", "-r", req_file
+            ], capture_output=True, text=True, cwd=project_root)
+            
+            if result.returncode == 0:
+                logger.info("依赖文件安装成功")
+                return True
+            else:
+                logger.warning(f"依赖文件安装失败: {result.stderr}")
+                # 尝试手动安装核心包
+                return install_core_packages()
+        else:
+            # 没有requirements文件，手动安装核心包
+            return install_core_packages()
+            
+    except Exception as e:
+        logger.error(f"安装依赖时出错: {e}")
+        return install_core_packages()
+
+
+def install_core_packages():
+    """手动安装核心依赖包"""
+    logger.info("尝试手动安装核心依赖包...")
+    
+    core_packages = [
+        'fastapi', 'uvicorn', 'streamlit', 'requests', 
+        'python-dotenv', 'pydantic', 'aiofiles'
+    ]
+    
+    failed_packages = []
+    
+    for package in core_packages:
+        try:
+            logger.info(f"安装 {package}...")
+            result = subprocess.run([
+                sys.executable, "-m", "pip", "install", package
+            ], capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                failed_packages.append(package)
+                logger.warning(f"安装 {package} 失败: {result.stderr}")
+            else:
+                logger.info(f"✅ {package} 安装成功")
+                
+        except Exception as e:
+            failed_packages.append(package)
+            logger.error(f"安装 {package} 时出错: {e}")
+    
+    if failed_packages:
+        logger.error(f"以下包安装失败: {', '.join(failed_packages)}")
         return False
     
-    print(f"✅ Python版本: {sys.version.split()[0]}")
+    logger.info("核心依赖包安装完成")
     return True
 
-def check_environment():
-    """检查环境配置"""
-    print("\n🔧 检查环境配置...")
+
+def create_directories():
+    """创建必要的目录"""
+    directories = [
+        'logs',
+        'temp',
+        'uploads',
+        'outputs',
+        'cache'
+    ]
     
-    env_file = Path(".env")
+    for directory in directories:
+        Path(directory).mkdir(exist_ok=True)
+    
+    logger.info("目录结构检查完成")
+
+
+def check_env_file():
+    """检查环境配置文件"""
+    env_file = Path('.env')
+    env_template = Path('env_template.txt')
+    
     if not env_file.exists():
-        print("⚠️  未找到.env文件")
-        print("📋 请复制cloud_env_template.txt为.env并配置API密钥")
-        
-        # 询问是否创建示例配置
-        response = input("是否创建示例配置文件? (y/n): ").lower()
-        if response == 'y':
-            try:
-                template_file = Path("cloud_env_template.txt")
-                if template_file.exists():
-                    import shutil
-                    shutil.copy(template_file, env_file)
-                    print(f"✅ 已创建.env文件，请编辑配置API密钥")
-                    print(f"📝 配置文件位置: {env_file.absolute()}")
-                else:
-                    print("❌ 未找到配置模板文件")
-            except Exception as e:
-                print(f"❌ 创建配置文件失败: {e}")
-        
-        return False
+        if env_template.exists():
+            logger.warning(".env文件不存在，正在从模板创建...")
+            env_file.write_text(env_template.read_text(encoding='utf-8'), encoding='utf-8')
+            logger.info("已创建.env文件，请编辑配置API密钥")
+        else:
+            logger.error("环境配置文件不存在，请创建.env文件")
+            sys.exit(1)
     
-    print("✅ 找到环境配置文件")
-    
-    # 检查关键配置
+    # 加载环境变量
     from dotenv import load_dotenv
     load_dotenv()
     
-    required_configs = []
-    optional_configs = []
-    
-    # 检查LLM服务
-    if os.getenv("QWEN_API_KEY"):
-        required_configs.append("✅ 通义千问 API")
-    elif os.getenv("ERNIE_API_KEY") and os.getenv("ERNIE_SECRET_KEY"):
-        required_configs.append("✅ 文心一言 API")
-    elif os.getenv("OPENAI_API_KEY"):
-        required_configs.append("✅ OpenAI API")
-    else:
-        print("❌ 未配置任何LLM服务API密钥")
-        print("💡 至少需要配置以下之一:")
-        print("   - QWEN_API_KEY (推荐，性价比最高)")
-        print("   - ERNIE_API_KEY + ERNIE_SECRET_KEY")
-        print("   - OPENAI_API_KEY")
-        return False
-    
-    # 检查TTS服务
-    if os.getenv("ALIYUN_ACCESS_KEY_ID") and os.getenv("ALIYUN_ACCESS_KEY_SECRET"):
-        optional_configs.append("✅ 阿里云TTS")
-    if os.getenv("TENCENT_SECRET_ID") and os.getenv("TENCENT_SECRET_KEY"):
-        optional_configs.append("✅ 腾讯云TTS")
-    
-    # 检查视频分析服务
-    if os.getenv("BAIDU_API_KEY") and os.getenv("BAIDU_SECRET_KEY"):
-        optional_configs.append("✅ 百度AI")
-    if os.getenv("QWEN_VL_API_KEY"):
-        optional_configs.append("✅ 通义千问-VL")
-    
-    print("📋 已配置的服务:")
-    for config in required_configs + optional_configs:
-        print(f"   {config}")
-    
-    if not optional_configs:
-        print("⚠️  建议配置更多服务以获得更好的效果")
-    
-    return True
+    logger.info("环境配置文件检查完成")
 
-def install_dependencies():
-    """安装依赖"""
-    print("\n📦 检查并安装依赖...")
-    
-    requirements_file = Path("requirements_cloud.txt")
-    if not requirements_file.exists():
-        print("⚠️  未找到requirements_cloud.txt，使用requirements.txt")
-        requirements_file = Path("requirements.txt")
-    
-    if not requirements_file.exists():
-        print("❌ 未找到依赖文件")
-        return False
-    
+
+def validate_configuration():
+    """验证配置"""
     try:
-        print("🔄 安装Python依赖...")
-        result = subprocess.run([
-            sys.executable, "-m", "pip", "install", "-r", str(requirements_file)
-        ], capture_output=True, text=True)
+        settings = get_cloud_settings()
+        preset_info = settings.get_preset_info()
         
-        if result.returncode != 0:
-            print("❌ 依赖安装失败:")
-            print(result.stderr)
+        logger.info(f"当前配置: {preset_info['name']}")
+        logger.info(f"预估成本: {preset_info['estimated_cost']}")
+        
+        # 检查可用服务
+        available_llm = preset_info['available_llm']
+        available_tts = preset_info['available_tts']
+        available_vision = preset_info['available_vision']
+        
+        if available_llm == 0:
+            logger.error("没有可用的LLM服务，请配置API密钥")
+            show_configuration_help()
             return False
         
-        print("✅ 依赖安装完成")
+        logger.info(f"可用服务: LLM({available_llm}) TTS({available_tts}) Vision({available_vision})")
+        
+        # 显示成本估算
+        cost_estimate = settings.estimate_cost()
+        logger.info(f"预估单视频成本: ¥{cost_estimate['total_cost']:.4f}")
+        
         return True
         
     except Exception as e:
-        print(f"❌ 安装依赖时出错: {e}")
+        logger.error(f"配置验证失败: {e}")
         return False
 
-def check_api_service():
-    """检查API服务是否运行"""
-    try:
-        response = requests.get("http://127.0.0.1:8000/health", timeout=5)
-        return response.status_code == 200
-    except:
-        return False
 
-def start_api_service():
-    """启动API服务"""
-    print("\n🚀 启动API服务...")
+def show_configuration_help():
+    """显示配置帮助信息"""
+    logger.info("=" * 60)
+    logger.info("🔧 配置帮助")
+    logger.info("=" * 60)
+    
+    # 显示预设方案
+    presets = preset_manager.list_presets()
+    logger.info("📋 可用的预设方案:")
+    for preset in presets:
+        logger.info(f"  {preset['name']}: {preset['description']}")
+        logger.info(f"    预估成本: {preset['estimated_cost']}")
+    
+    logger.info("")
+    logger.info("🔑 配置步骤:")
+    logger.info("1. 编辑 .env 文件")
+    logger.info("2. 设置 PRESET_CONFIG=cost_effective (或其他方案)")
+    logger.info("3. 根据选择的方案配置对应的API密钥")
+    logger.info("4. 重新启动应用")
+    logger.info("")
+    logger.info("📖 详细配置指南: https://github.com/cflank/AIMovie/blob/master/SUPPORTED_MODELS.md")
+    logger.info("=" * 60)
+
+
+def start_api_server():
+    """启动API服务器"""
+    logger.info("启动API服务器...")
+    
+    api_host = os.getenv("API_HOST", "127.0.0.1")
+    api_port = int(os.getenv("API_PORT", "8000"))
+    
+    cmd = [
+        sys.executable, "-m", "uvicorn",
+        "src.api.cloud_main:app",
+        "--host", api_host,
+        "--port", str(api_port),
+        "--reload",
+        "--log-level", "info"
+    ]
     
     try:
-        # 启动API服务
-        api_process = subprocess.Popen([
-            sys.executable, "-m", "src.api.cloud_main"
-        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        
-        # 等待服务启动
-        print("⏳ 等待API服务启动...")
-        for i in range(30):  # 最多等待30秒
-            if check_api_service():
-                print("✅ API服务启动成功")
-                print("🌐 API地址: http://127.0.0.1:8000")
-                print("📚 API文档: http://127.0.0.1:8000/docs")
-                return api_process
-            
-            time.sleep(1)
-            print(f"   等待中... ({i+1}/30)")
-        
-        print("❌ API服务启动超时")
-        api_process.terminate()
-        return None
-        
+        process = subprocess.Popen(cmd, cwd=project_root)
+        processes.append(process)
+        logger.info(f"API服务器已启动: http://{api_host}:{api_port}")
+        return process
     except Exception as e:
-        print(f"❌ 启动API服务失败: {e}")
+        logger.error(f"启动API服务器失败: {e}")
         return None
 
-def start_frontend():
-    """启动前端界面"""
-    print("\n🎨 启动前端界面...")
+
+def start_streamlit_app():
+    """启动Streamlit应用"""
+    logger.info("启动Streamlit前端...")
+    
+    streamlit_port = int(os.getenv("STREAMLIT_PORT", "8501"))
+    
+    cmd = [
+        sys.executable, "-m", "streamlit", "run",
+        "frontend/cloud_streamlit_app.py",
+        "--server.port", str(streamlit_port),
+        "--server.address", "0.0.0.0",
+        "--server.headless", "true",
+        "--browser.gatherUsageStats", "false"
+    ]
     
     try:
-        # 启动Streamlit前端
-        frontend_process = subprocess.Popen([
-            sys.executable, "-m", "streamlit", "run", 
-            "frontend/cloud_streamlit_app.py",
-            "--server.port", "8501",
-            "--server.address", "127.0.0.1"
-        ])
-        
-        print("✅ 前端界面启动成功")
-        print("🎬 访问地址: http://127.0.0.1:8501")
-        return frontend_process
-        
+        process = subprocess.Popen(cmd, cwd=project_root)
+        processes.append(process)
+        logger.info(f"Streamlit应用已启动: http://localhost:{streamlit_port}")
+        return process
     except Exception as e:
-        print(f"❌ 启动前端失败: {e}")
+        logger.error(f"启动Streamlit应用失败: {e}")
         return None
 
-def show_usage_info():
-    """显示使用说明"""
-    print("\n" + "="*60)
-    print("🎯 使用说明")
-    print("="*60)
-    print("1. 🌐 API服务: http://127.0.0.1:8000")
-    print("   - 查看API文档: http://127.0.0.1:8000/docs")
-    print("   - 健康检查: http://127.0.0.1:8000/health")
-    print()
-    print("2. 🎬 Web界面: http://127.0.0.1:8501")
-    print("   - 完整流程: 一键生成解说视频")
-    print("   - 视频分析: 智能分析视频内容")
-    print("   - 解说生成: AI生成解说词")
-    print("   - 语音合成: 多种语音风格")
-    print("   - 文件管理: 下载和管理文件")
-    print()
-    print("3. 💰 成本控制:")
-    print("   - 通义千问: ¥0.0008/1K tokens (推荐)")
-    print("   - 阿里云TTS: ¥0.00002/字符")
-    print("   - 百度AI: ¥0.002/图片")
-    print("   - 预估5分钟视频: ¥0.06-0.12")
-    print()
-    print("4. 🔧 配置优化:")
-    print("   - 减少帧采样频率节省成本")
-    print("   - 使用Edge-TTS免费语音合成")
-    print("   - 批量处理降低单次成本")
-    print("="*60)
+
+def wait_for_api_ready(host="127.0.0.1", port=8000, timeout=30):
+    """等待API服务就绪"""
+    import requests
+    
+    url = f"http://{host}:{port}/health"
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        try:
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                logger.info("API服务已就绪")
+                return True
+        except:
+            pass
+        time.sleep(1)
+    
+    logger.warning("API服务启动超时")
+    return False
+
+
+def show_startup_info():
+    """显示启动信息"""
+    settings = get_cloud_settings()
+    preset_info = settings.get_preset_info()
+    
+    api_host = os.getenv("API_HOST", "127.0.0.1")
+    api_port = int(os.getenv("API_PORT", "8000"))
+    streamlit_port = int(os.getenv("STREAMLIT_PORT", "8501"))
+    
+    logger.info("=" * 60)
+    logger.info("🎬 AIMovie Cloud 启动成功!")
+    logger.info("=" * 60)
+    logger.info(f"📋 当前配置: {preset_info['name']}")
+    logger.info(f"💰 预估成本: {preset_info['estimated_cost']}")
+    logger.info(f"🔗 前端界面: http://localhost:{streamlit_port}")
+    logger.info(f"🔗 API文档: http://{api_host}:{api_port}/docs")
+    logger.info(f"🔗 健康检查: http://{api_host}:{api_port}/health")
+    logger.info("=" * 60)
+    logger.info("💡 使用提示:")
+    logger.info("  - 在前端界面上传视频文件开始处理")
+    logger.info("  - 可在'配置选择'选项卡中切换大模型组合")
+    logger.info("  - 查看'成本管理'选项卡监控API使用情况")
+    logger.info("  - 按 Ctrl+C 停止所有服务")
+    logger.info("=" * 60)
+
 
 def main():
     """主函数"""
-    print_banner()
+    # 注册信号处理器
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
-    # 检查Python版本
-    if not check_python_version():
-        return
+    logger.info("🎬 AIMovie Cloud 启动中...")
     
-    # 检查环境配置
-    if not check_environment():
-        print("\n❌ 环境配置不完整，请配置API密钥后重新运行")
-        print("📖 配置帮助: 查看cloud_env_template.txt中的详细说明")
-        return
+    # 系统检查
+    check_python_version()
+    check_dependencies()
+    create_directories()
+    check_env_file()
     
-    # 安装依赖
-    if not install_dependencies():
-        print("\n❌ 依赖安装失败，请手动安装")
-        return
+    # 配置验证
+    if not validate_configuration():
+        logger.error("配置验证失败，请检查配置后重试")
+        sys.exit(1)
     
-    # 检查是否已有API服务运行
-    if check_api_service():
-        print("\n✅ 检测到API服务已在运行")
-    else:
-        # 启动API服务
-        api_process = start_api_service()
-        if not api_process:
-            print("\n❌ API服务启动失败")
-            return
+    # 启动服务
+    api_process = start_api_server()
+    if not api_process:
+        logger.error("API服务器启动失败")
+        sys.exit(1)
     
-    # 启动前端界面
-    frontend_process = start_frontend()
-    if not frontend_process:
-        print("\n❌ 前端界面启动失败")
-        return
+    # 等待API服务就绪
+    api_host = os.getenv("API_HOST", "127.0.0.1")
+    api_port = int(os.getenv("API_PORT", "8000"))
     
-    # 显示使用说明
-    show_usage_info()
+    if not wait_for_api_ready(api_host, api_port):
+        logger.error("API服务启动超时")
+        signal_handler(None, None)
+        sys.exit(1)
     
+    # 启动前端
+    streamlit_process = start_streamlit_app()
+    if not streamlit_process:
+        logger.error("Streamlit应用启动失败")
+        signal_handler(None, None)
+        sys.exit(1)
+    
+    # 等待前端就绪
+    time.sleep(3)
+    
+    # 显示启动信息
+    show_startup_info()
+    
+    # 监控进程
     try:
-        print("\n🎉 AIMovie Cloud 启动完成!")
-        print("💡 按 Ctrl+C 停止服务")
-        
-        # 等待用户中断
         while True:
-            time.sleep(1)
+            # 检查进程状态
+            for i, process in enumerate(processes):
+                if process.poll() is not None:
+                    logger.error(f"进程 {i} 意外退出，退出码: {process.returncode}")
+                    signal_handler(None, None)
+                    sys.exit(1)
             
+            time.sleep(5)
+    
     except KeyboardInterrupt:
-        print("\n\n🛑 正在停止服务...")
-        
-        # 停止进程
-        if 'frontend_process' in locals():
-            frontend_process.terminate()
-            print("✅ 前端服务已停止")
-        
-        if 'api_process' in locals():
-            api_process.terminate()
-            print("✅ API服务已停止")
-        
-        print("👋 感谢使用 AIMovie Cloud!")
+        signal_handler(None, None)
+
 
 if __name__ == "__main__":
     main() 

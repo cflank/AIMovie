@@ -8,6 +8,7 @@ import logging
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
 from .preset_configs import preset_manager, PresetType, PresetConfig
 
@@ -109,7 +110,9 @@ class CloudSettings:
         
         # 日志配置
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
+        self.LOG_LEVEL = self.log_level  # 兼容大写访问
         self.log_file = os.getenv("LOG_FILE", "logs/aimovie_cloud.log")
+        self.LOG_FILE = self.log_file  # 兼容大写访问
         
         # 缓存配置
         self.enable_cache = os.getenv("ENABLE_CACHE", "true").lower() == "true"
@@ -131,6 +134,20 @@ class CloudSettings:
         
         # 应用预设配置的推荐设置
         self._apply_preset_settings()
+        
+        # 添加缺失的目录配置
+        self.UPLOAD_DIR = Path("uploads")
+        self.OUTPUT_DIR = Path("outputs")
+        self.TEMP_DIR = Path("temp")
+        
+        # 添加其他缺失的配置
+        self.SUPPORTED_VIDEO_FORMATS = ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm']
+        self.MAX_FILE_SIZE = self.max_file_size * 1024 * 1024  # 转换为字节
+        self.TEMP_FILE_RETENTION = int(os.getenv("TEMP_FILE_RETENTION", "24"))
+        self.CORS_ORIGINS = self.cors_origins
+        self.API_HOST = self.api_host
+        self.API_PORT = self.api_port
+        self.DEBUG = self.debug
     
     def _parse_cors_origins(self) -> List[str]:
         """解析CORS源"""
@@ -429,15 +446,63 @@ class CloudSettings:
                 "max_concurrent_tasks": self.max_concurrent_tasks
             }
         }
+    
+    def validate_config(self):
+        """验证配置并返回错误和警告"""
+        errors = []
+        warnings = []
+        
+        # 检查必要的目录
+        for dir_path in [self.UPLOAD_DIR, self.OUTPUT_DIR, self.TEMP_DIR]:
+            if not dir_path.exists():
+                try:
+                    dir_path.mkdir(parents=True, exist_ok=True)
+                except Exception as e:
+                    errors.append(f"无法创建目录 {dir_path}: {e}")
+        
+        # 检查服务配置
+        if not self.get_llm_services():
+            warnings.append("没有可用的LLM服务")
+        
+        if not self.get_tts_services():
+            warnings.append("没有可用的TTS服务")
+        
+        if not self.get_vision_services():
+            warnings.append("没有可用的视觉分析服务")
+        
+        return errors, warnings
+    
+    def get_config(self):
+        """获取配置信息"""
+        return {
+            "api_host": self.api_host,
+            "api_port": self.api_port,
+            "debug": self.debug,
+            "log_level": self.log_level,
+            "preset_type": self.preset_type.value
+        }
+    
+    def get_available_llm_services(self):
+        """获取可用的LLM服务列表"""
+        return [service["name"] for service in self.get_llm_services()]
+    
+    def get_available_tts_services(self):
+        """获取可用的TTS服务列表"""
+        return [service["name"] for service in self.get_tts_services()]
+    
+    def get_available_video_services(self):
+        """获取可用的视觉服务列表"""
+        return [service["name"] for service in self.get_vision_services()]
 
 
 # 全局配置实例
-cloud_settings = CloudSettings()
+settings = CloudSettings()
+cloud_settings = settings  # 保持向后兼容
 
 
 def get_cloud_settings() -> CloudSettings:
     """获取云端配置的便捷函数"""
-    return cloud_settings
+    return settings
 
 
 if __name__ == "__main__":
