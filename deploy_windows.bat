@@ -53,32 +53,20 @@ if %errorLevel% == 0 (
 )
 
 :: 设置项目目录
-set PROJECT_DIR=%USERPROFILE%\AIMovie
-echo 📁 项目将安装到: %PROJECT_DIR%
+set PROJECT_DIR=%CD%
+echo 📁 项目目录: %PROJECT_DIR%
 
-:: 克隆或更新项目
-if exist "%PROJECT_DIR%" (
-    echo 📂 项目目录已存在，正在更新...
-    cd /d "%PROJECT_DIR%"
-    git pull origin master
-    if %errorLevel% neq 0 (
-        echo ⚠️ 更新失败，将重新克隆项目
-        cd /d "%USERPROFILE%"
-        rmdir /s /q "%PROJECT_DIR%"
-        git clone https://github.com/cflank/AIMovie.git
-    )
+:: 检查项目文件
+echo 🔍 检查项目文件...
+if exist "start.py" (
+    echo ✅ 项目文件已存在
 ) else (
-    echo 📥 正在克隆项目...
-    cd /d "%USERPROFILE%"
-    git clone https://github.com/cflank/AIMovie.git
-    if %errorLevel% neq 0 (
-        echo ❌ 项目克隆失败，请检查网络连接
-        pause
-        exit /b 1
-    )
+    echo ❌ 当前目录不是AIMovie项目目录
+    echo 请确保在AIMovie项目根目录下运行此脚本
+    pause
+    exit /b 1
 )
 
-cd /d "%PROJECT_DIR%"
 echo ✅ 项目代码准备完成
 
 :: 创建虚拟环境
