@@ -119,21 +119,73 @@ python start.py
 - Web界面: http://127.0.0.1:8501
 - API文档: http://127.0.0.1:8000/docs
 
-## 🔑 API配置
+## 🔑 大模型组合方案
 
-### 🌟 推荐配置 (高性价比)
+### 🏆 最高性价比组合 (推荐)
+**平衡质量与成本，适合大多数用户**
+- **预估成本**: ¥0.06-0.12/5分钟视频
+- **解说生成**: 通义千问 + 文心一言备用
+- **语音合成**: 阿里云TTS + Edge-TTS备用
+- **视频分析**: 百度AI + 通义千问-VL备用
 
 ```env
-# 通义千问 (解说生成主力) - ¥0.0008/1K tokens
+# 设置预设配置
+PRESET_CONFIG=cost_effective
+
+# 通义千问 (主力)
 QWEN_API_KEY=your_qwen_api_key_here
 
-# 阿里云TTS (语音合成主力) - ¥0.00002/字符
+# 阿里云TTS (主力)
 ALIYUN_ACCESS_KEY_ID=your_access_key_id
 ALIYUN_ACCESS_KEY_SECRET=your_access_key_secret
 
-# 百度AI (视频分析主力) - ¥0.002/图片
+# 百度AI (主力)
 BAIDU_API_KEY=your_baidu_api_key
 BAIDU_SECRET_KEY=your_baidu_secret_key
+```
+
+### 💎 质量最高组合
+**追求最佳效果，适合专业用户**
+- **预估成本**: ¥0.5-1.0/5分钟视频
+- **解说生成**: GPT-4 + Claude备用
+- **语音合成**: Azure TTS + 阿里云TTS备用
+- **视频分析**: GPT-4V + 通义千问-VL备用
+
+```env
+# 设置预设配置
+PRESET_CONFIG=premium
+
+# OpenAI GPT-4 (主力)
+OPENAI_API_KEY=your_openai_api_key
+
+# Azure TTS (主力)
+AZURE_TTS_KEY=your_azure_tts_key
+AZURE_TTS_REGION=eastus
+
+# OpenAI Vision (主力)
+OPENAI_VISION_API_KEY=your_openai_vision_api_key
+```
+
+### 💰 最经济组合
+**最低成本，适合预算有限用户**
+- **预估成本**: ¥0.02-0.05/5分钟视频
+- **解说生成**: 文心一言 + 通义千问备用
+- **语音合成**: Edge-TTS + 百度TTS备用
+- **视频分析**: 百度AI (免费额度)
+
+```env
+# 设置预设配置
+PRESET_CONFIG=budget
+
+# 文心一言 (主力)
+ERNIE_API_KEY=your_ernie_api_key
+ERNIE_SECRET_KEY=your_ernie_secret_key
+
+# 百度AI (主力)
+BAIDU_API_KEY=your_baidu_api_key
+BAIDU_SECRET_KEY=your_baidu_secret_key
+
+# Edge-TTS (免费，无需配置)
 ```
 
 ### 📋 API申请链接
@@ -145,19 +197,29 @@ BAIDU_SECRET_KEY=your_baidu_secret_key
 - **腾讯云**: https://console.cloud.tencent.com/
 - **OpenAI**: https://platform.openai.com/
 
-## 💰 成本估算
+## 💰 成本对比分析
 
-### 单个5分钟视频处理成本
+### 📊 三种方案成本对比
+
+| 方案 | 单视频成本 | 月度成本(100视频) | 适用场景 |
+|------|------------|-------------------|----------|
+| 🏆 最高性价比 | ¥0.06-0.12 | ¥6-12 | 大多数用户，平衡质量与成本 |
+| 💎 质量最高 | ¥0.5-1.0 | ¥50-100 | 专业用户，追求最佳效果 |
+| 💰 最经济 | ¥0.02-0.05 | ¥2-5 | 预算有限，大批量处理 |
+
+### 📈 成本构成分析
+**以5分钟视频为例 (最高性价比方案)**
 - **视频分析** (50帧): ¥0.05-0.10
 - **解说生成** (500字): ¥0.0004-0.0006  
 - **语音合成** (500字): ¥0.01-0.015
 - **总计**: 约 ¥0.06-0.12
 
-### 月处理量成本预估
-- **10个视频/月**: ¥0.6-1.2
-- **50个视频/月**: ¥3-6
-- **100个视频/月**: ¥6-12
-- **500个视频/月**: ¥30-60
+### 💡 省钱技巧
+- 🎯 选择合适的预设方案
+- 📉 减少视频帧采样频率
+- 🆓 优先使用免费服务 (Edge-TTS)
+- 📦 批量处理降低单次成本
+- ⏰ 避开API高峰期使用
 
 ## 📖 使用指南
 
@@ -182,10 +244,11 @@ BAIDU_SECRET_KEY=your_baidu_secret_key
 
 ### 📚 详细文档
 
-- [📖 完整使用指南](CLOUD_USAGE_GUIDE.md)
-- [🔧 API文档](http://127.0.0.1:8000/docs) (启动服务后访问)
-- [🤝 贡献指南](CONTRIBUTING.md)
-- [📋 更新日志](CHANGELOG.md)
+- [🤖 支持的大模型服务](SUPPORTED_MODELS.md) - 详细的服务对比和配置指南
+- [📖 完整使用指南](CLOUD_USAGE_GUIDE.md) - 从安装到使用的完整教程
+- [🔧 API文档](http://127.0.0.1:8000/docs) - 在线API接口文档 (启动服务后访问)
+- [🚀 快速部署指南](QUICK_DEPLOY.md) - 一键部署脚本使用说明
+- [📋 版本发布说明](RELEASE_NOTES.md) - 版本更新和新功能介绍
 
 ## 🛠️ 开发
 

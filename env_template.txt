@@ -21,72 +21,147 @@ OUTPUT_QUALITY=medium
 # 🌟 高性价比云端API组合推荐
 # ==========================================
 
-# 📝 解说生成 - 通义千问 (主力，性价比最高)
-# 价格: ¥0.0008/1K tokens
-# 申请地址: https://dashscope.aliyuncs.com/
+# ========================================
+# 📋 预设组合配置 (选择其中一种)
+# ========================================
+
+# 🏆 最高性价比组合 (推荐) - 平衡质量与成本
+# 解说生成: 通义千问 + 文心一言备用
+# 语音合成: 阿里云TTS + Edge-TTS备用  
+# 视频分析: 百度AI + 通义千问-VL备用
+# 预估成本: ¥0.06-0.12/5分钟视频
+PRESET_CONFIG=cost_effective
+
+# 💎 质量最高组合 - 追求最佳效果
+# 解说生成: GPT-4 + Claude备用
+# 语音合成: Azure TTS + 阿里云TTS备用
+# 视频分析: GPT-4V + 通义千问-VL备用
+# 预估成本: ¥0.5-1.0/5分钟视频
+# PRESET_CONFIG=premium
+
+# 💰 最经济组合 - 最低成本
+# 解说生成: 文心一言 + 通义千问备用
+# 语音合成: Edge-TTS + 系统TTS备用
+# 视频分析: 百度AI (免费额度)
+# 预估成本: ¥0.02-0.05/5分钟视频
+# PRESET_CONFIG=budget
+
+# ==========================================
+# 🤖 LLM服务配置 (解说生成)
+# ==========================================
+
+# 通义千问 (阿里云) - 高性价比首选
+# 价格: ¥0.0008/1K tokens | 申请: https://dashscope.aliyuncs.com/
 QWEN_API_KEY=your_qwen_api_key_here
+QWEN_MODEL=qwen-plus  # qwen-turbo, qwen-plus, qwen-max
 
-# 📝 解说生成 - 文心一言 (备用)
-# 价格: ¥0.0012/1K tokens  
-# 申请地址: https://cloud.baidu.com/product/wenxinworkshop
-ERNIE_API_KEY=your_ernie_api_key_here
-ERNIE_SECRET_KEY=your_ernie_secret_key_here
+# 文心一言 (百度) - 中文优化
+# 价格: ¥0.008/1K tokens | 申请: https://cloud.baidu.com/product/wenxinworkshop
+ERNIE_API_KEY=your_ernie_api_key
+ERNIE_SECRET_KEY=your_ernie_secret_key
+ERNIE_MODEL=ernie-3.5-8k  # ernie-lite-8k, ernie-3.5-8k, ernie-4.0-8k
 
-# 🎤 语音合成 - 阿里云TTS (主力)
-# 价格: ¥0.00002/字符
-# 申请地址: https://nls.console.aliyun.com/
-ALIYUN_ACCESS_KEY_ID=your_aliyun_access_key_id_here
-ALIYUN_ACCESS_KEY_SECRET=your_aliyun_access_key_secret_here
+# OpenAI GPT (国际) - 质量标杆
+# 价格: $0.002/1K tokens | 申请: https://platform.openai.com/
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-3.5-turbo  # gpt-3.5-turbo, gpt-4, gpt-4-turbo
+
+# Claude (Anthropic) - 高质量备选
+# 价格: $0.003/1K tokens | 申请: https://console.anthropic.com/
+CLAUDE_API_KEY=your_claude_api_key
+CLAUDE_MODEL=claude-3-haiku-20240307  # claude-3-haiku, claude-3-sonnet, claude-3-opus
+
+# 智谱AI (清华) - 国产优选
+# 价格: ¥0.005/1K tokens | 申请: https://open.bigmodel.cn/
+ZHIPU_API_KEY=your_zhipu_api_key
+ZHIPU_MODEL=glm-3-turbo  # glm-3-turbo, glm-4
+
+# 月之暗面 (Kimi) - 长文本处理
+# 价格: ¥0.012/1K tokens | 申请: https://platform.moonshot.cn/
+MOONSHOT_API_KEY=your_moonshot_api_key
+MOONSHOT_MODEL=moonshot-v1-8k  # moonshot-v1-8k, moonshot-v1-32k, moonshot-v1-128k
+
+# ==========================================
+# 🎙️ TTS服务配置 (语音合成)
+# ==========================================
+
+# 阿里云TTS - 高性价比首选
+# 价格: ¥0.00002/字符 | 申请: https://nls.console.aliyun.com/
+ALIYUN_ACCESS_KEY_ID=your_access_key_id
+ALIYUN_ACCESS_KEY_SECRET=your_access_key_secret
 ALIYUN_TTS_REGION=cn-shanghai
+ALIYUN_TTS_VOICE=xiaoyun  # xiaoyun, xiaogang, xiaomeng, etc.
 
-# 🎤 语音合成 - 腾讯云TTS (备用)
-# 价格: ¥0.00003/字符
-# 申请地址: https://console.cloud.tencent.com/tts
-TENCENT_SECRET_ID=your_tencent_secret_id_here
-TENCENT_SECRET_KEY=your_tencent_secret_key_here
+# 腾讯云TTS - 质量稳定
+# 价格: ¥0.00015/字符 | 申请: https://console.cloud.tencent.com/
+TENCENT_SECRET_ID=your_secret_id
+TENCENT_SECRET_KEY=your_secret_key
 TENCENT_TTS_REGION=ap-beijing
+TENCENT_TTS_VOICE=101001  # 101001(女声), 101002(男声), etc.
 
-# 🔍 视频分析 - 百度AI (主力)
-# 价格: ¥0.002/图片
-# 申请地址: https://ai.baidu.com/ai-doc/IMAGERECOGNITION/Xk3bcxe21
-BAIDU_API_KEY=your_baidu_api_key_here
-BAIDU_SECRET_KEY=your_baidu_secret_key_here
+# Azure TTS (微软) - 质量最高
+# 价格: $0.016/1K字符 | 申请: https://azure.microsoft.com/cognitive-services/
+AZURE_TTS_KEY=your_azure_tts_key
+AZURE_TTS_REGION=eastus
+AZURE_TTS_VOICE=zh-CN-XiaoxiaoNeural
 
-# 👁️ 图像理解 - 通义千问-VL (主力)
-# 价格: ¥0.001/图片
-# 申请地址: https://dashscope.aliyuncs.com/
-QWEN_VL_API_KEY=your_qwen_vl_api_key_here  # 可与QWEN_API_KEY相同
+# 百度TTS - 免费额度大
+# 价格: 免费5万字符/月 | 申请: https://ai.baidu.com/
+BAIDU_TTS_API_KEY=your_baidu_tts_api_key
+BAIDU_TTS_SECRET_KEY=your_baidu_tts_secret_key
+BAIDU_TTS_VOICE=0  # 0(女声), 1(男声), 3(情感女声), 4(情感男声)
+
+# Edge-TTS - 完全免费
+# 无需配置，自动可用
+EDGE_TTS_VOICE=zh-CN-XiaoxiaoNeural  # zh-CN-XiaoxiaoNeural, zh-CN-YunxiNeural, etc.
+
+# ==========================================
+# 🔍 视频分析服务配置
+# ==========================================
+
+# 百度AI - 高性价比首选
+# 价格: ¥0.002/图片 | 申请: https://ai.baidu.com/
+BAIDU_API_KEY=your_baidu_api_key
+BAIDU_SECRET_KEY=your_baidu_secret_key
+
+# 通义千问-VL - 多模态理解
+# 价格: ¥0.008/图片 | 申请: https://dashscope.aliyuncs.com/
+QWEN_VL_API_KEY=your_qwen_vl_api_key
+QWEN_VL_MODEL=qwen-vl-plus  # qwen-vl-plus, qwen-vl-max
+
+# GPT-4V (OpenAI) - 质量最高
+# 价格: $0.01/图片 | 申请: https://platform.openai.com/
+OPENAI_VISION_API_KEY=your_openai_vision_api_key
+OPENAI_VISION_MODEL=gpt-4-vision-preview
+
+# 腾讯云视觉AI
+# 价格: ¥0.0015/图片 | 申请: https://console.cloud.tencent.com/
+TENCENT_VISION_SECRET_ID=your_vision_secret_id
+TENCENT_VISION_SECRET_KEY=your_vision_secret_key
+
+# 阿里云视觉智能
+# 价格: ¥0.003/图片 | 申请: https://vision.console.aliyun.com/
+ALIYUN_VISION_ACCESS_KEY_ID=your_vision_access_key_id
+ALIYUN_VISION_ACCESS_KEY_SECRET=your_vision_access_key_secret
 
 # ==========================================
 # 🚀 高端备用方案 (可选)
 # ==========================================
 
-# OpenAI GPT (高质量但价格较高)
-# 价格: ¥0.002/1K tokens
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_BASE_URL=https://api.openai.com/v1
+# ========================================
+# ⚙️ 系统配置
+# ========================================
 
-# ==========================================
-# 💰 成本估算参考
-# ==========================================
-# 
-# 处理一个5分钟视频的预估成本:
-# - 视频分析 (50帧): ¥0.05-0.10
-# - 解说生成 (500字): ¥0.0004-0.0006  
-# - 语音合成 (500字): ¥0.01-0.015
-# - 总计: 约 ¥0.06-0.12
-#
-# 月处理100个视频预估成本: ¥6-12
-#
-# 💡 省钱技巧:
-# 1. 优先使用通义千问 (最便宜)
-# 2. 减少视频帧采样频率
-# 3. 使用Edge-TTS免费语音合成
-# 4. 批量处理降低单次成本
+# 服务配置
+API_HOST=127.0.0.1
+API_PORT=8000
+STREAMLIT_PORT=8501
 
-# ==========================================
-# 🔧 高级配置 (可选)
-# ==========================================
+# 处理配置
+MAX_FILE_SIZE=500  # MB
+TEMP_FILE_RETENTION=24  # 小时
+OUTPUT_QUALITY=medium
 
 # 视频处理优化
 FRAME_SAMPLE_INTERVAL=3  # 每3秒采样一帧 (减少API调用)
@@ -149,3 +224,140 @@ CORS_ORIGINS=*
 #    - 访问: https://console.cloud.tencent.com/tts
 #    - 开通服务 → 获取SecretId和SecretKey
 #    - 新用户有免费额度 
+
+# ==========================================
+# 🔧 高级配置 (可选)
+# ==========================================
+
+# 并发控制
+MAX_CONCURRENT_TASKS=3
+
+# 日志配置
+LOG_FILE=logs/aimovie_cloud.log
+
+# 缓存配置
+ENABLE_CACHE=true
+CACHE_TTL=3600  # 秒
+
+# 安全配置
+API_RATE_LIMIT=100  # 每分钟请求数
+
+# ==========================================
+# 💰 成本估算参考
+# ==========================================
+# 
+# 处理一个5分钟视频的预估成本:
+# - 视频分析 (50帧): ¥0.05-0.10
+# - 解说生成 (500字): ¥0.0004-0.0006  
+# - 语音合成 (500字): ¥0.01-0.015
+# - 总计: 约 ¥0.06-0.12
+#
+# 月处理100个视频预估成本: ¥6-12
+#
+# 💡 省钱技巧:
+# 1. 优先使用通义千问 (最便宜)
+# 2. 减少视频帧采样频率
+# 3. 使用Edge-TTS免费语音合成
+# 4. 批量处理降低单次成本
+
+# ==========================================
+# 🔧 高级配置
+# ==========================================
+
+# API超时设置 (秒)
+API_TIMEOUT=60
+LLM_TIMEOUT=120
+TTS_TIMEOUT=180
+VISION_TIMEOUT=90
+
+# 重试配置
+RETRY_DELAY=1  # 秒
+
+# 并发控制
+MAX_CONCURRENT_LLM_REQUESTS=5
+MAX_CONCURRENT_TTS_REQUESTS=3
+MAX_CONCURRENT_VISION_REQUESTS=2
+
+# 质量配置
+VIDEO_QUALITY=medium  # low, medium, high
+AUDIO_QUALITY=medium  # low, medium, high
+OUTPUT_FORMAT=mp4  # mp4, avi, mov
+
+# 调试配置
+ENABLE_PROFILING=false
+SAVE_INTERMEDIATE_FILES=false
+
+# ==========================================
+# 📊 监控配置
+# ==========================================
+
+# 性能监控
+ENABLE_METRICS=true
+METRICS_PORT=9090
+
+# 健康检查
+HEALTH_CHECK_INTERVAL=30  # 秒
+
+# 统计收集
+COLLECT_USAGE_STATS=true
+STATS_RETENTION_DAYS=30
+
+# ==========================================
+# 🌐 部署配置
+# ==========================================
+
+# 环境标识
+ENVIRONMENT=development  # development, staging, production
+
+# 数据库配置 (可选)
+# DATABASE_URL=sqlite:///aimovie.db
+
+# Redis配置 (可选)
+# REDIS_URL=redis://localhost:6379/0
+
+# 文件存储配置
+STORAGE_TYPE=local  # local, s3, oss
+# S3_BUCKET=your-s3-bucket
+# S3_ACCESS_KEY=your-s3-access-key
+# S3_SECRET_KEY=your-s3-secret-key
+
+# CDN配置 (可选)
+# CDN_BASE_URL=https://your-cdn-domain.com
+
+# ==========================================
+# 📝 配置说明
+# ==========================================
+
+# 1. 选择预设配置: 取消注释对应的 PRESET_CONFIG 行
+# 2. 配置API密钥: 至少配置一个LLM服务的API密钥
+# 3. 推荐最小配置:
+#    - QWEN_API_KEY (解说生成)
+#    - ALIYUN_ACCESS_KEY_ID + ALIYUN_ACCESS_KEY_SECRET (语音合成)
+#    - BAIDU_API_KEY + BAIDU_SECRET_KEY (视频分析)
+# 4. 成本控制: 根据需要调整成本限制
+# 5. 性能调优: 根据服务器配置调整并发数和超时时间
+
+# ==========================================
+# 🔗 申请链接汇总
+# ==========================================
+
+# LLM服务:
+# - 通义千问: https://dashscope.aliyuncs.com/
+# - 文心一言: https://cloud.baidu.com/product/wenxinworkshop
+# - OpenAI: https://platform.openai.com/
+# - Claude: https://console.anthropic.com/
+# - 智谱AI: https://open.bigmodel.cn/
+# - 月之暗面: https://platform.moonshot.cn/
+
+# TTS服务:
+# - 阿里云: https://nls.console.aliyun.com/
+# - 腾讯云: https://console.cloud.tencent.com/
+# - Azure: https://azure.microsoft.com/cognitive-services/
+# - 百度: https://ai.baidu.com/
+
+# 视觉服务:
+# - 百度AI: https://ai.baidu.com/
+# - 通义千问-VL: https://dashscope.aliyuncs.com/
+# - OpenAI Vision: https://platform.openai.com/
+# - 腾讯云: https://console.cloud.tencent.com/
+# - 阿里云: https://vision.console.aliyun.com/ 

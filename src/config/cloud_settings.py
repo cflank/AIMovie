@@ -1,280 +1,471 @@
-import os
-from pathlib import Path
-from dotenv import load_dotenv
+"""
+云端服务配置管理
+支持多种大模型组合和预设配置
+"""
 
-# 加载环境变量
-load_dotenv()
+import os
+import logging
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass, field
+from enum import Enum
+
+from .preset_configs import preset_manager, PresetType, PresetConfig
+
+
+logger = logging.getLogger(__name__)
+
+
+class ServiceStatus(Enum):
+    """服务状态"""
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+    ERROR = "error"
+    RATE_LIMITED = "rate_limited"
+
+
+@dataclass
+class ServiceInfo:
+    """服务信息"""
+    name: str
+    status: ServiceStatus
+    cost_per_unit: float
+    unit: str
+    priority: int
+    last_used: Optional[str] = None
+    error_count: int = 0
+    rate_limit_reset: Optional[str] = None
+
+
+@dataclass
+class CostTracker:
+    """成本跟踪器"""
+    daily_cost: float = 0.0
+    monthly_cost: float = 0.0
+    total_cost: float = 0.0
+    daily_limit: float = 50.0
+    monthly_limit: float = 500.0
+    single_video_limit: float = 5.0
+    warning_threshold: float = 0.8
+
 
 class CloudSettings:
-    """云端API配置"""
+    """云端服务配置管理器"""
     
-    # 基础配置
-    ENVIRONMENT = "cloud"
-    DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+    def __init__(self):
+        self.preset_type = self._get_preset_type()
+        self.preset_config = preset_manager.get_preset(self.preset_type)
+        self.cost_tracker = CostTracker()
+        self.service_status = {}
+        self._load_settings()
+        self._validate_configuration()
     
-    # 路径配置
-    BASE_DIR = Path(__file__).parent.parent.parent
-    DATA_DIR = BASE_DIR / "data"
-    UPLOAD_DIR = DATA_DIR / "input"
-    OUTPUT_DIR = DATA_DIR / "output"
-    TEMP_DIR = DATA_DIR / "temp"
-    LOGS_DIR = BASE_DIR / "logs"
+    def _get_preset_type(self) -> PresetType:
+        """获取预设类型"""
+        preset_name = os.getenv("PRESET_CONFIG", "cost_effective")
+        try:
+            return PresetType(preset_name)
+        except ValueError:
+            logger.warning(f"未知的预设配置: {preset_name}，使用默认配置")
+            return PresetType.COST_EFFECTIVE
     
-    # 确保目录存在
-    for dir_path in [DATA_DIR, UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, LOGS_DIR]:
-        dir_path.mkdir(exist_ok=True)
-    
-    # 服务配置
-    API_HOST = os.getenv("API_HOST", "127.0.0.1")
-    API_PORT = int(os.getenv("API_PORT", "8000"))
-    STREAMLIT_PORT = int(os.getenv("STREAMLIT_PORT", "8501"))
-    API_BASE_URL = os.getenv("API_BASE_URL", f"http://{API_HOST}:{API_PORT}")
-    
-    # ==========================================
-    # 云端API配置 - 高性价比组合
-    # ==========================================
-    
-    # 通义千问 (阿里云) - 解说生成主力
-    QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")
-    QWEN_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
-    QWEN_MODEL = "qwen-turbo"  # 性价比最高
-    
-    # 文心一言 (百度) - 解说生成备用
-    ERNIE_API_KEY = os.getenv("ERNIE_API_KEY", "")
-    ERNIE_SECRET_KEY = os.getenv("ERNIE_SECRET_KEY", "")
-    ERNIE_MODEL = "ernie-3.5-8k"  # 性价比版本
-    
-    # 阿里云语音合成 - TTS主力
-    ALIYUN_ACCESS_KEY_ID = os.getenv("ALIYUN_ACCESS_KEY_ID", "")
-    ALIYUN_ACCESS_KEY_SECRET = os.getenv("ALIYUN_ACCESS_KEY_SECRET", "")
-    ALIYUN_TTS_REGION = os.getenv("ALIYUN_TTS_REGION", "cn-shanghai")
-    
-    # 腾讯云TTS - TTS备用
-    TENCENT_SECRET_ID = os.getenv("TENCENT_SECRET_ID", "")
-    TENCENT_SECRET_KEY = os.getenv("TENCENT_SECRET_KEY", "")
-    TENCENT_TTS_REGION = os.getenv("TENCENT_TTS_REGION", "ap-beijing")
-    
-    # 百度AI - 视频分析
-    BAIDU_API_KEY = os.getenv("BAIDU_API_KEY", "")
-    BAIDU_SECRET_KEY = os.getenv("BAIDU_SECRET_KEY", "")
-    
-    # 通义千问-VL - 图像理解
-    QWEN_VL_API_KEY = os.getenv("QWEN_VL_API_KEY", "")  # 可与QWEN_API_KEY相同
-    
-    # OpenAI - 高端备用方案
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-    OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-    
-    # ==========================================
-    # 服务优先级配置
-    # ==========================================
-    
-    # 解说生成服务优先级 (按性价比排序)
-    LLM_SERVICES = [
-        {
-            "name": "qwen",
-            "display_name": "通义千问",
-            "cost_per_1k": 0.0008,  # 元/1K tokens
-            "enabled": bool(QWEN_API_KEY)
-        },
-        {
-            "name": "ernie",
-            "display_name": "文心一言", 
-            "cost_per_1k": 0.0012,
-            "enabled": bool(ERNIE_API_KEY and ERNIE_SECRET_KEY)
-        },
-        {
-            "name": "openai",
-            "display_name": "GPT-3.5",
-            "cost_per_1k": 0.002,
-            "enabled": bool(OPENAI_API_KEY)
-        }
-    ]
-    
-    # TTS服务优先级
-    TTS_SERVICES = [
-        {
-            "name": "aliyun",
-            "display_name": "阿里云TTS",
-            "cost_per_char": 0.00002,  # 元/字符
-            "enabled": bool(ALIYUN_ACCESS_KEY_ID and ALIYUN_ACCESS_KEY_SECRET)
-        },
-        {
-            "name": "tencent", 
-            "display_name": "腾讯云TTS",
-            "cost_per_char": 0.00003,
-            "enabled": bool(TENCENT_SECRET_ID and TENCENT_SECRET_KEY)
-        },
-        {
-            "name": "edge",
-            "display_name": "Edge-TTS",
-            "cost_per_char": 0,  # 免费
-            "enabled": True
-        }
-    ]
-    
-    # 视频分析服务
-    VIDEO_ANALYSIS_SERVICES = [
-        {
-            "name": "baidu",
-            "display_name": "百度AI",
-            "cost_per_image": 0.002,
-            "enabled": bool(BAIDU_API_KEY and BAIDU_SECRET_KEY)
-        },
-        {
-            "name": "qwen_vl",
-            "display_name": "通义千问-VL", 
-            "cost_per_image": 0.001,
-            "enabled": bool(QWEN_VL_API_KEY)
-        }
-    ]
-    
-    # ==========================================
-    # 处理配置
-    # ==========================================
-    
-    # 文件配置
-    MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", "500")) * 1024 * 1024
-    TEMP_FILE_RETENTION = int(os.getenv("TEMP_FILE_RETENTION", "24"))
-    OUTPUT_QUALITY = os.getenv("OUTPUT_QUALITY", "medium")
-    
-    # 视频处理配置
-    DEFAULT_FPS = 24
-    DEFAULT_RESOLUTION = (854, 480)
-    MAX_VIDEO_DURATION = 600
-    
-    # 采样配置 (云端优化)
-    FRAME_SAMPLE_INTERVAL = 3  # 每3秒采样一帧
-    MAX_FRAMES_PER_VIDEO = 50  # 最多分析50帧
-    
-    # 日志配置
-    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-    LOG_FILE = LOGS_DIR / "aimovie_cloud.log"
-    
-    # CORS配置
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
-    
-    # 支持的文件格式
-    SUPPORTED_VIDEO_FORMATS = ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv']
-    SUPPORTED_AUDIO_FORMATS = ['.wav', '.mp3', '.aac', '.m4a']
-    
-    @classmethod
-    def get_available_llm_services(cls):
-        """获取可用的LLM服务"""
-        return [service for service in cls.LLM_SERVICES if service["enabled"]]
-    
-    @classmethod
-    def get_available_tts_services(cls):
-        """获取可用的TTS服务"""
-        return [service for service in cls.TTS_SERVICES if service["enabled"]]
-    
-    @classmethod
-    def get_available_video_services(cls):
-        """获取可用的视频分析服务"""
-        return [service for service in cls.VIDEO_ANALYSIS_SERVICES if service["enabled"]]
-    
-    @classmethod
-    def get_primary_llm_service(cls):
-        """获取主要LLM服务"""
-        available = cls.get_available_llm_services()
-        return available[0] if available else None
-    
-    @classmethod
-    def get_primary_tts_service(cls):
-        """获取主要TTS服务"""
-        available = cls.get_available_tts_services()
-        return available[0] if available else None
-    
-    @classmethod
-    def get_primary_video_service(cls):
-        """获取主要视频分析服务"""
-        available = cls.get_available_video_services()
-        return available[0] if available else None
-    
-    @classmethod
-    def estimate_cost(cls, text_length: int, audio_length: int, frame_count: int):
-        """估算处理成本"""
-        cost = 0
+    def _load_settings(self):
+        """加载配置"""
+        # 基础配置
+        self.api_host = os.getenv("API_HOST", "127.0.0.1")
+        self.api_port = int(os.getenv("API_PORT", "8000"))
+        self.streamlit_port = int(os.getenv("STREAMLIT_PORT", "8501"))
         
-        # LLM成本 (按token估算，中文约1.5字符/token)
-        llm_service = cls.get_primary_llm_service()
-        if llm_service:
-            tokens = text_length / 1.5
-            cost += (tokens / 1000) * llm_service["cost_per_1k"]
+        # 处理配置
+        self.max_file_size = int(os.getenv("MAX_FILE_SIZE", "500"))
+        self.frame_sample_interval = int(os.getenv("FRAME_SAMPLE_INTERVAL", "3"))
+        self.max_frames_per_video = int(os.getenv("MAX_FRAMES_PER_VIDEO", "50"))
+        self.max_concurrent_tasks = int(os.getenv("MAX_CONCURRENT_TASKS", "3"))
         
-        # TTS成本
-        tts_service = cls.get_primary_tts_service()
-        if tts_service:
-            cost += audio_length * tts_service["cost_per_char"]
+        # 质量配置
+        self.video_quality = os.getenv("VIDEO_QUALITY", "medium")
+        self.audio_quality = os.getenv("AUDIO_QUALITY", "medium")
+        self.output_format = os.getenv("OUTPUT_FORMAT", "mp4")
         
-        # 视频分析成本
-        video_service = cls.get_primary_video_service()
-        if video_service:
-            cost += frame_count * video_service["cost_per_image"]
+        # 超时配置
+        self.api_timeout = int(os.getenv("API_TIMEOUT", "60"))
+        self.llm_timeout = int(os.getenv("LLM_TIMEOUT", "120"))
+        self.tts_timeout = int(os.getenv("TTS_TIMEOUT", "180"))
+        self.vision_timeout = int(os.getenv("VISION_TIMEOUT", "90"))
         
-        return round(cost, 4)
+        # 重试配置
+        self.api_retry_times = int(os.getenv("API_RETRY_TIMES", "3"))
+        self.retry_delay = int(os.getenv("RETRY_DELAY", "1"))
+        
+        # 并发控制
+        self.max_concurrent_llm_requests = int(os.getenv("MAX_CONCURRENT_LLM_REQUESTS", "5"))
+        self.max_concurrent_tts_requests = int(os.getenv("MAX_CONCURRENT_TTS_REQUESTS", "3"))
+        self.max_concurrent_vision_requests = int(os.getenv("MAX_CONCURRENT_VISION_REQUESTS", "2"))
+        
+        # 成本控制
+        self.cost_tracker.daily_limit = float(os.getenv("DAILY_COST_LIMIT", "50.0"))
+        self.cost_tracker.monthly_limit = float(os.getenv("MONTHLY_COST_LIMIT", "500.0"))
+        self.cost_tracker.single_video_limit = float(os.getenv("SINGLE_VIDEO_COST_LIMIT", "5.0"))
+        self.cost_tracker.warning_threshold = float(os.getenv("COST_WARNING_THRESHOLD", "0.8"))
+        
+        # 日志配置
+        self.log_level = os.getenv("LOG_LEVEL", "INFO")
+        self.log_file = os.getenv("LOG_FILE", "logs/aimovie_cloud.log")
+        
+        # 缓存配置
+        self.enable_cache = os.getenv("ENABLE_CACHE", "true").lower() == "true"
+        self.cache_ttl = int(os.getenv("CACHE_TTL", "3600"))
+        
+        # 安全配置
+        self.api_rate_limit = int(os.getenv("API_RATE_LIMIT", "100"))
+        self.cors_origins = self._parse_cors_origins()
+        
+        # 监控配置
+        self.enable_metrics = os.getenv("ENABLE_METRICS", "true").lower() == "true"
+        self.metrics_port = int(os.getenv("METRICS_PORT", "9090"))
+        self.health_check_interval = int(os.getenv("HEALTH_CHECK_INTERVAL", "30"))
+        
+        # 调试配置
+        self.debug = os.getenv("DEBUG", "false").lower() == "true"
+        self.enable_profiling = os.getenv("ENABLE_PROFILING", "false").lower() == "true"
+        self.save_intermediate_files = os.getenv("SAVE_INTERMEDIATE_FILES", "false").lower() == "true"
+        
+        # 应用预设配置的推荐设置
+        self._apply_preset_settings()
     
-    @classmethod
-    def validate_config(cls):
+    def _parse_cors_origins(self) -> List[str]:
+        """解析CORS源"""
+        origins_str = os.getenv("CORS_ORIGINS", '["http://localhost:8501", "http://127.0.0.1:8501"]')
+        try:
+            import json
+            return json.loads(origins_str)
+        except:
+            return ["http://localhost:8501", "http://127.0.0.1:8501"]
+    
+    def _apply_preset_settings(self):
+        """应用预设配置的推荐设置"""
+        for key, value in self.preset_config.recommended_settings.items():
+            env_key = key.upper()
+            if not os.getenv(env_key):  # 只在环境变量未设置时应用
+                setattr(self, key.lower(), value)
+    
+    def _validate_configuration(self):
         """验证配置"""
-        errors = []
-        warnings = []
+        env_vars = dict(os.environ)
+        validation_result = preset_manager.validate_preset_config(self.preset_type, env_vars)
         
-        # 检查至少有一个LLM服务可用
-        if not cls.get_available_llm_services():
-            errors.append("没有可用的LLM服务，请配置至少一个API密钥")
+        if not validation_result["valid"]:
+            logger.error("配置验证失败")
+            for recommendation in validation_result["recommendations"]:
+                logger.error(f"  - {recommendation}")
         
-        # 检查至少有一个TTS服务可用
-        if not cls.get_available_tts_services():
-            warnings.append("没有配置云端TTS服务，将使用Edge-TTS")
+        if validation_result["missing_keys"]:
+            logger.warning("缺失的配置项:")
+            for key in validation_result["missing_keys"]:
+                logger.warning(f"  - {key}")
         
-        # 检查视频分析服务
-        if not cls.get_available_video_services():
-            warnings.append("没有配置云端视频分析服务，将使用基础分析")
-        
-        # 检查目录权限
-        for dir_name, dir_path in [
-            ("数据目录", cls.DATA_DIR),
-            ("上传目录", cls.UPLOAD_DIR),
-            ("输出目录", cls.OUTPUT_DIR),
-            ("临时目录", cls.TEMP_DIR),
-            ("日志目录", cls.LOGS_DIR)
-        ]:
-            if not dir_path.exists():
-                try:
-                    dir_path.mkdir(parents=True, exist_ok=True)
-                except Exception as e:
-                    errors.append(f"无法创建{dir_name}: {e}")
-            elif not os.access(dir_path, os.W_OK):
-                errors.append(f"{dir_name}无写入权限: {dir_path}")
-        
-        return errors, warnings
+        # 记录可用服务
+        for service_type, services in validation_result["available_services"].items():
+            if services:
+                logger.info(f"可用的{service_type}服务: {', '.join(services)}")
+            else:
+                logger.warning(f"没有可用的{service_type}服务")
     
-    @classmethod
-    def get_config(cls):
-        """获取配置字典"""
+    def get_llm_services(self) -> List[Dict[str, Any]]:
+        """获取LLM服务配置"""
+        services = []
+        for service_config in self.preset_config.llm_services:
+            if self._is_service_available(service_config.required_keys):
+                service_info = {
+                    "name": service_config.name,
+                    "priority": service_config.priority,
+                    "cost_per_unit": service_config.cost_per_unit,
+                    "unit": service_config.unit,
+                    "description": service_config.description,
+                    "config": self._get_service_config(service_config.name)
+                }
+                services.append(service_info)
+        
+        return sorted(services, key=lambda x: x["priority"])
+    
+    def get_tts_services(self) -> List[Dict[str, Any]]:
+        """获取TTS服务配置"""
+        services = []
+        for service_config in self.preset_config.tts_services:
+            if self._is_service_available(service_config.required_keys):
+                service_info = {
+                    "name": service_config.name,
+                    "priority": service_config.priority,
+                    "cost_per_unit": service_config.cost_per_unit,
+                    "unit": service_config.unit,
+                    "description": service_config.description,
+                    "config": self._get_service_config(service_config.name)
+                }
+                services.append(service_info)
+        
+        return sorted(services, key=lambda x: x["priority"])
+    
+    def get_vision_services(self) -> List[Dict[str, Any]]:
+        """获取视觉服务配置"""
+        services = []
+        for service_config in self.preset_config.vision_services:
+            if self._is_service_available(service_config.required_keys):
+                service_info = {
+                    "name": service_config.name,
+                    "priority": service_config.priority,
+                    "cost_per_unit": service_config.cost_per_unit,
+                    "unit": service_config.unit,
+                    "description": service_config.description,
+                    "config": self._get_service_config(service_config.name)
+                }
+                services.append(service_info)
+        
+        return sorted(services, key=lambda x: x["priority"])
+    
+    def _is_service_available(self, required_keys: List[str]) -> bool:
+        """检查服务是否可用"""
+        if not required_keys:  # 无需配置的服务（如Edge-TTS）
+            return True
+        return all(os.getenv(key) for key in required_keys)
+    
+    def _get_service_config(self, service_name: str) -> Dict[str, Any]:
+        """获取特定服务的配置"""
+        configs = {
+            "通义千问": {
+                "api_key": os.getenv("QWEN_API_KEY"),
+                "model": os.getenv("QWEN_MODEL", "qwen-plus"),
+                "base_url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
+            },
+            "文心一言": {
+                "api_key": os.getenv("ERNIE_API_KEY"),
+                "secret_key": os.getenv("ERNIE_SECRET_KEY"),
+                "model": os.getenv("ERNIE_MODEL", "ernie-3.5-8k")
+            },
+            "GPT-4": {
+                "api_key": os.getenv("OPENAI_API_KEY"),
+                "base_url": os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+                "model": os.getenv("OPENAI_MODEL", "gpt-4")
+            },
+            "Claude-3 Opus": {
+                "api_key": os.getenv("CLAUDE_API_KEY"),
+                "model": os.getenv("CLAUDE_MODEL", "claude-3-opus-20240229")
+            },
+            "智谱AI GLM-3": {
+                "api_key": os.getenv("ZHIPU_API_KEY"),
+                "model": os.getenv("ZHIPU_MODEL", "glm-3-turbo")
+            },
+            "月之暗面": {
+                "api_key": os.getenv("MOONSHOT_API_KEY"),
+                "model": os.getenv("MOONSHOT_MODEL", "moonshot-v1-8k")
+            },
+            "阿里云TTS": {
+                "access_key_id": os.getenv("ALIYUN_ACCESS_KEY_ID"),
+                "access_key_secret": os.getenv("ALIYUN_ACCESS_KEY_SECRET"),
+                "region": os.getenv("ALIYUN_TTS_REGION", "cn-shanghai"),
+                "voice": os.getenv("ALIYUN_TTS_VOICE", "xiaoyun")
+            },
+            "腾讯云TTS": {
+                "secret_id": os.getenv("TENCENT_SECRET_ID"),
+                "secret_key": os.getenv("TENCENT_SECRET_KEY"),
+                "region": os.getenv("TENCENT_TTS_REGION", "ap-beijing"),
+                "voice": os.getenv("TENCENT_TTS_VOICE", "101001")
+            },
+            "Azure TTS": {
+                "api_key": os.getenv("AZURE_TTS_KEY"),
+                "region": os.getenv("AZURE_TTS_REGION", "eastus"),
+                "voice": os.getenv("AZURE_TTS_VOICE", "zh-CN-XiaoxiaoNeural")
+            },
+            "百度TTS": {
+                "api_key": os.getenv("BAIDU_TTS_API_KEY"),
+                "secret_key": os.getenv("BAIDU_TTS_SECRET_KEY"),
+                "voice": os.getenv("BAIDU_TTS_VOICE", "0")
+            },
+            "Edge-TTS": {
+                "voice": os.getenv("EDGE_TTS_VOICE", "zh-CN-XiaoxiaoNeural")
+            },
+            "百度AI": {
+                "api_key": os.getenv("BAIDU_API_KEY"),
+                "secret_key": os.getenv("BAIDU_SECRET_KEY")
+            },
+            "通义千问-VL": {
+                "api_key": os.getenv("QWEN_VL_API_KEY"),
+                "model": os.getenv("QWEN_VL_MODEL", "qwen-vl-plus")
+            },
+            "GPT-4V": {
+                "api_key": os.getenv("OPENAI_VISION_API_KEY"),
+                "model": os.getenv("OPENAI_VISION_MODEL", "gpt-4-vision-preview")
+            },
+            "腾讯云视觉AI": {
+                "secret_id": os.getenv("TENCENT_VISION_SECRET_ID"),
+                "secret_key": os.getenv("TENCENT_VISION_SECRET_KEY")
+            },
+            "阿里云视觉智能": {
+                "access_key_id": os.getenv("ALIYUN_VISION_ACCESS_KEY_ID"),
+                "access_key_secret": os.getenv("ALIYUN_VISION_ACCESS_KEY_SECRET")
+            }
+        }
+        
+        return configs.get(service_name, {})
+    
+    def get_preset_info(self) -> Dict[str, Any]:
+        """获取当前预设配置信息"""
         return {
-            "environment": cls.ENVIRONMENT,
-            "debug": cls.DEBUG,
-            "api_host": cls.API_HOST,
-            "api_port": cls.API_PORT,
-            "streamlit_port": cls.STREAMLIT_PORT,
+            "type": self.preset_type.value,
+            "name": self.preset_config.name,
+            "description": self.preset_config.description,
+            "estimated_cost": self.preset_config.estimated_cost_per_5min,
+            "llm_services": len(self.preset_config.llm_services),
+            "tts_services": len(self.preset_config.tts_services),
+            "vision_services": len(self.preset_config.vision_services),
+            "available_llm": len(self.get_llm_services()),
+            "available_tts": len(self.get_tts_services()),
+            "available_vision": len(self.get_vision_services()),
+        }
+    
+    def estimate_cost(self, text_length: int = 500, audio_length: int = 500, frame_count: int = 50) -> Dict[str, Any]:
+        """估算处理成本"""
+        llm_services = self.get_llm_services()
+        tts_services = self.get_tts_services()
+        vision_services = self.get_vision_services()
+        
+        # 计算LLM成本（假设输入输出各占一半）
+        llm_cost = 0
+        if llm_services:
+            primary_llm = llm_services[0]
+            tokens = text_length * 2 / 1000  # 估算token数
+            llm_cost = tokens * primary_llm["cost_per_unit"]
+        
+        # 计算TTS成本
+        tts_cost = 0
+        if tts_services:
+            primary_tts = tts_services[0]
+            if primary_tts["unit"] == "字符":
+                tts_cost = audio_length * primary_tts["cost_per_unit"]
+            elif primary_tts["unit"] == "1K字符":
+                tts_cost = (audio_length / 1000) * primary_tts["cost_per_unit"]
+        
+        # 计算视觉分析成本
+        vision_cost = 0
+        if vision_services:
+            primary_vision = vision_services[0]
+            vision_cost = frame_count * primary_vision["cost_per_unit"]
+        
+        total_cost = llm_cost + tts_cost + vision_cost
+        
+        return {
+            "llm_cost": round(llm_cost, 4),
+            "tts_cost": round(tts_cost, 4),
+            "vision_cost": round(vision_cost, 4),
+            "total_cost": round(total_cost, 4),
+            "currency": "CNY",
+            "breakdown": {
+                "llm": f"{primary_llm['name'] if llm_services else '无'}: ¥{llm_cost:.4f}",
+                "tts": f"{primary_tts['name'] if tts_services else '无'}: ¥{tts_cost:.4f}",
+                "vision": f"{primary_vision['name'] if vision_services else '无'}: ¥{vision_cost:.4f}"
+            }
+        }
+    
+    def check_cost_limits(self, estimated_cost: float) -> Dict[str, Any]:
+        """检查成本限制"""
+        result = {
+            "within_limits": True,
+            "warnings": [],
+            "blocks": []
+        }
+        
+        # 检查单视频成本限制
+        if estimated_cost > self.cost_tracker.single_video_limit:
+            result["within_limits"] = False
+            result["blocks"].append(f"单视频成本¥{estimated_cost:.4f}超过限制¥{self.cost_tracker.single_video_limit}")
+        
+        # 检查日度成本限制
+        projected_daily = self.cost_tracker.daily_cost + estimated_cost
+        if projected_daily > self.cost_tracker.daily_limit:
+            result["within_limits"] = False
+            result["blocks"].append(f"日度成本将达到¥{projected_daily:.4f}，超过限制¥{self.cost_tracker.daily_limit}")
+        elif projected_daily > self.cost_tracker.daily_limit * self.cost_tracker.warning_threshold:
+            result["warnings"].append(f"日度成本将达到¥{projected_daily:.4f}，接近限制¥{self.cost_tracker.daily_limit}")
+        
+        # 检查月度成本限制
+        projected_monthly = self.cost_tracker.monthly_cost + estimated_cost
+        if projected_monthly > self.cost_tracker.monthly_limit:
+            result["within_limits"] = False
+            result["blocks"].append(f"月度成本将达到¥{projected_monthly:.4f}，超过限制¥{self.cost_tracker.monthly_limit}")
+        elif projected_monthly > self.cost_tracker.monthly_limit * self.cost_tracker.warning_threshold:
+            result["warnings"].append(f"月度成本将达到¥{projected_monthly:.4f}，接近限制¥{self.cost_tracker.monthly_limit}")
+        
+        return result
+    
+    def update_cost(self, actual_cost: float):
+        """更新实际成本"""
+        self.cost_tracker.daily_cost += actual_cost
+        self.cost_tracker.monthly_cost += actual_cost
+        self.cost_tracker.total_cost += actual_cost
+        
+        logger.info(f"成本更新: +¥{actual_cost:.4f}, 日度总计: ¥{self.cost_tracker.daily_cost:.4f}, 月度总计: ¥{self.cost_tracker.monthly_cost:.4f}")
+    
+    def get_system_info(self) -> Dict[str, Any]:
+        """获取系统信息"""
+        return {
+            "preset": self.get_preset_info(),
             "services": {
-                "llm": cls.get_available_llm_services(),
-                "tts": cls.get_available_tts_services(),
-                "video": cls.get_available_video_services()
+                "llm": self.get_llm_services(),
+                "tts": self.get_tts_services(),
+                "vision": self.get_vision_services()
             },
-            "limits": {
-                "max_file_size_mb": cls.MAX_FILE_SIZE // (1024 * 1024),
-                "max_video_duration": cls.MAX_VIDEO_DURATION,
-                "temp_retention_hours": cls.TEMP_FILE_RETENTION,
-                "max_frames": cls.MAX_FRAMES_PER_VIDEO
+            "cost_tracker": {
+                "daily_cost": self.cost_tracker.daily_cost,
+                "monthly_cost": self.cost_tracker.monthly_cost,
+                "total_cost": self.cost_tracker.total_cost,
+                "daily_limit": self.cost_tracker.daily_limit,
+                "monthly_limit": self.cost_tracker.monthly_limit,
+                "single_video_limit": self.cost_tracker.single_video_limit
             },
-            "processing": {
-                "frame_interval": cls.FRAME_SAMPLE_INTERVAL,
-                "default_fps": cls.DEFAULT_FPS,
-                "default_resolution": cls.DEFAULT_RESOLUTION
+            "settings": {
+                "max_file_size": self.max_file_size,
+                "frame_sample_interval": self.frame_sample_interval,
+                "max_frames_per_video": self.max_frames_per_video,
+                "video_quality": self.video_quality,
+                "audio_quality": self.audio_quality,
+                "max_concurrent_tasks": self.max_concurrent_tasks
             }
         }
 
-settings = CloudSettings()
+
+# 全局配置实例
+cloud_settings = CloudSettings()
+
+
+def get_cloud_settings() -> CloudSettings:
+    """获取云端配置的便捷函数"""
+    return cloud_settings
+
+
+if __name__ == "__main__":
+    # 测试代码
+    settings = CloudSettings()
+    
+    print("=== 当前预设配置 ===")
+    preset_info = settings.get_preset_info()
+    print(f"配置: {preset_info['name']}")
+    print(f"描述: {preset_info['description']}")
+    print(f"预估成本: {preset_info['estimated_cost']}")
+    print()
+    
+    print("=== 可用服务 ===")
+    print(f"LLM服务: {len(settings.get_llm_services())}个")
+    for service in settings.get_llm_services():
+        print(f"  - {service['name']}: {service['cost_per_unit']}{service['unit']}")
+    
+    print(f"TTS服务: {len(settings.get_tts_services())}个")
+    for service in settings.get_tts_services():
+        print(f"  - {service['name']}: {service['cost_per_unit']}{service['unit']}")
+    
+    print(f"视觉服务: {len(settings.get_vision_services())}个")
+    for service in settings.get_vision_services():
+        print(f"  - {service['name']}: {service['cost_per_unit']}{service['unit']}")
+    
+    print("\n=== 成本估算 ===")
+    cost_estimate = settings.estimate_cost()
+    print(f"总成本: ¥{cost_estimate['total_cost']}")
+    for service_type, cost_info in cost_estimate['breakdown'].items():
+        print(f"  {service_type}: {cost_info}")

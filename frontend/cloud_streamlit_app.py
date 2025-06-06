@@ -1,732 +1,874 @@
+"""
+AIMovie Cloud Streamlit 前端应用
+集成多种大模型组合和预设配置选择
+"""
+
 import streamlit as st
 import requests
-import time
-import json
-from pathlib import Path
+import os
 import sys
+import json
+import time
+from typing import Dict, Any, Optional, List
+import logging
 
 # 添加项目根目录到路径
-sys.path.append(str(Path(__file__).parent.parent))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.config.cloud_settings import settings
+from config_selector import (
+    render_preset_selector, 
+    render_service_status, 
+    render_detailed_service_info,
+    render_cost_calculator,
+    render_configuration_guide,
+    render_preset_comparison
+)
 
-# 页面配置
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# 配置页面
 st.set_page_config(
-    page_title="AIMovie Cloud - AI视频解说生成器",
+    page_title="AIMovie Cloud - 智能视频解说生成器",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # API基础URL
-API_BASE_URL = settings.API_BASE_URL
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
-def check_api_health():
-    """检查API服务状态"""
+# 自定义CSS
+st.markdown("""
+<style>
+    .main-header {
+        text-align: center;
+        padding: 2rem 0;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+        margin-bottom: 2rem;
+    }
+    .feature-card {
+        background: #f8f9fa;
+        padding: 1.5rem;
+        border-radius: 10px;
+        border-left: 4px solid #667eea;
+        margin: 1rem 0;
+    }
+    .cost-info {
+        background: #e8f5e8;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid #28a745;
+    }
+    .warning-info {
+        background: #fff3cd;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid #ffc107;
+    }
+    .error-info {
+        background: #f8d7da;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid #dc3545;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+def check_api_health() -> bool:
+    """检查API服务健康状态"""
     try:
         response = requests.get(f"{API_BASE_URL}/health", timeout=5)
-        return response.status_code == 200, response.json() if response.status_code == 200 else None
+        return response.status_code == 200
     except:
-        return False, None
+        return False
 
-def upload_video(video_file):
-    """上传视频文件"""
+
+def get_system_info() -> Optional[Dict]:
+    """获取系统信息"""
     try:
-        files = {"file": (video_file.name, video_file.getvalue(), video_file.type)}
-        response = requests.post(f"{API_BASE_URL}/upload/video", files=files)
-        response.raise_for_status()
-        return response.json()
+        response = requests.get(f"{API_BASE_URL}/system/info", timeout=10)
+        if response.status_code == 200:
+            return response.json()
     except Exception as e:
-        st.error(f"视频上传失败: {e}")
-        return None
-
-def get_task_status(task_id):
-    """获取任务状态"""
-    try:
-        response = requests.get(f"{API_BASE_URL}/task/{task_id}")
-        response.raise_for_status()
-        return response.json()
-    except:
-        return None
-
-def wait_for_task(task_id, progress_bar=None, status_text=None):
-    """等待任务完成"""
-    while True:
-        status = get_task_status(task_id)
-        if not status:
-            break
-        
-        if progress_bar:
-            progress_bar.progress(status.get("progress", 0))
-        
-        if status_text:
-            status_text.text(status.get("message", "处理中..."))
-        
-        if status.get("status") in ["completed", "failed"]:
-            return status
-        
-        time.sleep(1)
-    
+        logger.error(f"获取系统信息失败: {e}")
     return None
 
-def estimate_cost(text_length, audio_length, frame_count):
-    """估算处理成本"""
-    try:
-        response = requests.get(
-            f"{API_BASE_URL}/cost/estimate",
-            params={
-                "text_length": text_length,
-                "audio_length": audio_length,
-                "frame_count": frame_count
-            }
-        )
-        response.raise_for_status()
-        return response.json()
-    except:
-        return None
 
-def main():
-    # 标题和描述
-    st.title("🎬 AIMovie Cloud - AI视频解说生成器")
-    st.markdown("### 🌐 云端版 - 高性价比AI服务组合")
-    
-    # 检查API服务状态
-    api_healthy, health_info = check_api_health()
-    
-    if not api_healthy:
-        st.error("⚠️ API服务未启动或无法连接")
-        st.markdown("""
-        请确保API服务正在运行:
-        ```bash
-        python -m src.api.cloud_main
-        ```
-        """)
-        return
-    
-    # 显示服务状态
+def render_header():
+    """渲染页面头部"""
+    st.markdown("""
+    <div class="main-header">
+        <h1>🎬 AIMovie Cloud</h1>
+        <h3>智能视频解说生成器 - 云端版</h3>
+        <p>完全基于云端API，无需GPU硬件，成本透明可控</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_sidebar():
+    """渲染侧边栏"""
     with st.sidebar:
-        st.header("🔧 服务状态")
+        st.title("🎛️ 控制面板")
         
-        if health_info:
-            config = health_info.get("config", {})
-            services = config.get("services", {})
-            
-            # LLM服务
-            st.subheader("📝 解说生成")
-            llm_services = services.get("llm", [])
-            if llm_services:
-                for service in llm_services:
-                    st.success(f"✅ {service['display_name']}")
-            else:
-                st.warning("⚠️ 未配置LLM服务")
-            
-            # TTS服务
-            st.subheader("🎤 语音合成")
-            tts_services = services.get("tts", [])
-            if tts_services:
-                for service in tts_services:
-                    st.success(f"✅ {service['display_name']}")
-            else:
-                st.warning("⚠️ 未配置TTS服务")
-            
-            # 视频分析服务
-            st.subheader("🔍 视频分析")
-            video_services = services.get("video", [])
-            if video_services:
-                for service in video_services:
-                    st.success(f"✅ {service['display_name']}")
-            else:
-                st.warning("⚠️ 未配置视频分析服务")
-            
-            # 配置警告
-            if health_info.get("warnings"):
-                st.subheader("⚠️ 配置警告")
-                for warning in health_info["warnings"]:
-                    st.warning(warning)
+        # API状态检查
+        api_healthy = check_api_health()
+        if api_healthy:
+            st.success("✅ API服务正常")
+        else:
+            st.error("❌ API服务不可用")
+            st.write("请检查后端服务是否启动")
+            st.code("python start.py")
         
-        # 成本估算
-        st.header("💰 成本估算")
-        with st.expander("估算处理成本"):
-            text_len = st.number_input("解说字数", min_value=100, max_value=2000, value=500)
-            audio_len = st.number_input("音频字数", min_value=100, max_value=2000, value=500)
-            frame_count = st.number_input("分析帧数", min_value=10, max_value=100, value=50)
+        st.divider()
+        
+        # 系统信息
+        system_info = get_system_info()
+        if system_info:
+            preset_info = system_info.get("preset", {})
+            st.write("**当前配置**")
+            st.write(f"方案: {preset_info.get('name', '未知')}")
+            st.write(f"预估成本: {preset_info.get('estimated_cost', '未知')}")
             
-            if st.button("估算成本"):
-                cost_info = estimate_cost(text_len, audio_len, frame_count)
-                if cost_info:
-                    st.success(f"预估成本: ¥{cost_info['estimated_cost']}")
-                    st.caption("实际费用可能因API调用情况而有所不同")
-    
-    # 主界面选项卡
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            # 服务状态
+            st.write("**服务状态**")
+            st.write(f"LLM: {preset_info.get('available_llm', 0)}/{preset_info.get('llm_services', 0)}")
+            st.write(f"TTS: {preset_info.get('available_tts', 0)}/{preset_info.get('tts_services', 0)}")
+            st.write(f"视觉: {preset_info.get('available_vision', 0)}/{preset_info.get('vision_services', 0)}")
+        
+        st.divider()
+        
+        # 快速链接
+        st.write("**快速链接**")
+        st.markdown("- [📖 使用指南](https://github.com/cflank/AIMovie/blob/master/CLOUD_USAGE_GUIDE.md)")
+        st.markdown("- [🔧 API文档](http://127.0.0.1:8000/docs)")
+        st.markdown("- [🐛 问题反馈](https://github.com/cflank/AIMovie/issues)")
+        st.markdown("- [💡 功能建议](https://github.com/cflank/AIMovie/issues/new?template=feature_request.md)")
+
+
+def render_main_tabs():
+    """渲染主要选项卡"""
+    tabs = st.tabs([
+        "🎯 配置选择", 
         "🎬 完整流程", 
-        "🔍 视频分析", 
-        "📝 解说生成", 
-        "🎤 语音合成", 
-        "📁 文件管理"
+        "🔍 分步处理", 
+        "💰 成本管理", 
+        "📊 系统状态",
+        "📖 帮助文档"
     ])
     
-    # ==========================================
-    # 完整流程
-    # ==========================================
-    with tab1:
-        st.header("🎬 一键生成解说视频")
-        st.markdown("上传视频，自动完成分析、解说生成、语音合成和视频制作的完整流程")
-        
-        # 视频上传
-        video_file = st.file_uploader(
-            "选择视频文件",
-            type=['mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv'],
-            help="支持常见视频格式，最大500MB"
-        )
-        
-        if video_file:
-            # 显示视频信息
-            st.video(video_file)
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader("解说设置")
-                style = st.selectbox(
-                    "解说风格",
-                    ["professional", "humorous", "emotional", "suspenseful"],
-                    format_func=lambda x: {
-                        "professional": "专业严肃",
-                        "humorous": "幽默风趣", 
-                        "emotional": "情感丰富",
-                        "suspenseful": "悬疑紧张"
-                    }[x]
-                )
-                
-                target_audience = st.selectbox(
-                    "目标观众",
-                    ["general", "young", "professional", "children"],
-                    format_func=lambda x: {
-                        "general": "普通大众",
-                        "young": "年轻观众",
-                        "professional": "专业人士", 
-                        "children": "儿童观众"
-                    }[x]
-                )
-                
-                narration_length = st.selectbox(
-                    "解说长度",
-                    ["short", "medium", "long"],
-                    index=1,
-                    format_func=lambda x: {
-                        "short": "简短",
-                        "medium": "中等",
-                        "long": "详细"
-                    }[x]
-                )
-            
-            with col2:
-                st.subheader("语音设置")
-                
-                # 获取可用语音
-                try:
-                    response = requests.get(f"{API_BASE_URL}/tts/voices")
-                    voices_data = response.json()
-                    
-                    voice_options = []
-                    voice_mapping = {}
-                    
-                    for gender, voices in voices_data.items():
-                        for voice in voices:
-                            display_name = f"{voice['name']} ({gender})"
-                            voice_options.append(display_name)
-                            voice_mapping[display_name] = voice['id']
-                    
-                    selected_voice_display = st.selectbox("语音风格", voice_options)
-                    voice_style = voice_mapping[selected_voice_display]
-                    
-                except:
-                    voice_style = st.selectbox(
-                        "语音风格",
-                        ["female_gentle", "female_lively", "female_intellectual", 
-                         "male_steady", "male_young", "male_magnetic"],
-                        format_func=lambda x: {
-                            "female_gentle": "温柔女声",
-                            "female_lively": "活泼女声",
-                            "female_intellectual": "知性女声",
-                            "male_steady": "沉稳男声",
-                            "male_young": "年轻男声",
-                            "male_magnetic": "磁性男声"
-                        }[x]
-                    )
-                
-                speed = st.slider("语速", 0.5, 2.0, 1.0, 0.1)
-                pitch = st.slider("音调", 0.5, 2.0, 1.0, 0.1)
-                volume = st.slider("音量", 0.5, 2.0, 1.0, 0.1)
-            
-            # 开始处理
-            if st.button("🚀 开始完整处理", type="primary"):
-                with st.spinner("正在处理..."):
-                    try:
-                        # 准备表单数据
-                        files = {"video_file": (video_file.name, video_file.getvalue(), video_file.type)}
-                        data = {
-                            "style": style,
-                            "target_audience": target_audience,
-                            "narration_length": narration_length,
-                            "voice_style": voice_style,
-                            "speed": speed,
-                            "pitch": pitch,
-                            "volume": volume
-                        }
-                        
-                        # 提交完整处理任务
-                        response = requests.post(
-                            f"{API_BASE_URL}/process/complete",
-                            files=files,
-                            data=data
-                        )
-                        response.raise_for_status()
-                        task_info = response.json()
-                        task_id = task_info["task_id"]
-                        
-                        st.success(f"任务已启动: {task_id}")
-                        
-                        # 显示进度
-                        progress_bar = st.progress(0)
-                        status_text = st.empty()
-                        
-                        # 等待任务完成
-                        final_status = wait_for_task(task_id, progress_bar, status_text)
-                        
-                        if final_status and final_status.get("status") == "completed":
-                            st.success("🎉 处理完成!")
-                            
-                            result = final_status.get("result", {})
-                            
-                            # 显示结果
-                            if "final_video" in result:
-                                st.subheader("📹 生成的解说视频")
-                                video_url = f"{API_BASE_URL}/files/download/output/{Path(result['final_video']).name}"
-                                st.markdown(f"[下载视频]({video_url})")
-                            
-                            # 显示详细信息
-                            with st.expander("查看详细结果"):
-                                st.json(result)
-                        
-                        elif final_status and final_status.get("status") == "failed":
-                            st.error(f"处理失败: {final_status.get('error', '未知错误')}")
-                        
-                        else:
-                            st.error("任务状态异常")
-                    
-                    except Exception as e:
-                        st.error(f"处理失败: {e}")
+    with tabs[0]:
+        render_config_tab()
     
-    # ==========================================
-    # 视频分析
-    # ==========================================
-    with tab2:
-        st.header("🔍 视频内容分析")
-        
-        # 文件选择
-        uploaded_file = st.file_uploader(
-            "上传视频进行分析",
-            type=['mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv'],
-            key="analysis_upload"
-        )
-        
-        if uploaded_file:
-            # 上传文件
-            upload_result = upload_video(uploaded_file)
-            if upload_result:
-                video_path = upload_result["file_path"]
-                
-                if st.button("开始分析"):
-                    try:
-                        # 提交分析任务
-                        response = requests.post(
-                            f"{API_BASE_URL}/analyze/video",
-                            json={"video_path": video_path}
-                        )
-                        response.raise_for_status()
-                        task_info = response.json()
-                        task_id = task_info["task_id"]
-                        
-                        # 显示进度
-                        progress_bar = st.progress(0)
-                        status_text = st.empty()
-                        
-                        # 等待分析完成
-                        final_status = wait_for_task(task_id, progress_bar, status_text)
-                        
-                        if final_status and final_status.get("status") == "completed":
-                            st.success("分析完成!")
-                            
-                            result = final_status.get("result", {})
-                            
-                            # 显示分析结果
-                            col1, col2 = st.columns(2)
-                            
-                            with col1:
-                                st.subheader("📊 视频信息")
-                                video_info = result.get("video_info", {})
-                                st.write(f"时长: {video_info.get('duration', 0):.1f}秒")
-                                st.write(f"分辨率: {video_info.get('resolution', [0, 0])[0]}x{video_info.get('resolution', [0, 0])[1]}")
-                                st.write(f"帧率: {video_info.get('fps', 0):.1f}")
-                                
-                                audio_info = result.get("audio_analysis", {})
-                                st.write(f"音频: {'有' if audio_info.get('has_audio') else '无'}")
-                            
-                            with col2:
-                                st.subheader("🎯 分析摘要")
-                                summary = result.get("summary", {})
-                                st.write(f"分析帧数: {summary.get('total_frames_analyzed', 0)}")
-                                
-                                scene_types = summary.get("scene_types", {})
-                                if scene_types:
-                                    st.write("场景类型:")
-                                    for scene, count in scene_types.items():
-                                        st.write(f"  - {scene}: {count}帧")
-                            
-                            # 关键时刻
-                            key_moments = summary.get("key_moments", [])
-                            if key_moments:
-                                st.subheader("⭐ 关键时刻")
-                                for i, moment in enumerate(key_moments[:5], 1):
-                                    timestamp = moment["timestamp"]
-                                    description = moment["description"]
-                                    confidence = moment["confidence"]
-                                    st.write(f"{i}. {timestamp:.1f}秒: {description} (置信度: {confidence:.2f})")
-                            
-                            # 保存分析结果到session state
-                            st.session_state.video_analysis = result
-                            st.session_state.video_path = video_path
-                        
-                        elif final_status and final_status.get("status") == "failed":
-                            st.error(f"分析失败: {final_status.get('error', '未知错误')}")
-                    
-                    except Exception as e:
-                        st.error(f"分析失败: {e}")
+    with tabs[1]:
+        render_complete_workflow_tab()
     
-    # ==========================================
-    # 解说生成
-    # ==========================================
-    with tab3:
-        st.header("📝 智能解说生成")
-        
-        if "video_analysis" in st.session_state:
-            st.success("✅ 已有视频分析结果")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                style = st.selectbox(
-                    "解说风格",
-                    ["professional", "humorous", "emotional", "suspenseful"],
-                    format_func=lambda x: {
-                        "professional": "专业严肃",
-                        "humorous": "幽默风趣",
-                        "emotional": "情感丰富", 
-                        "suspenseful": "悬疑紧张"
-                    }[x],
-                    key="narration_style"
-                )
-                
-                target_audience = st.selectbox(
-                    "目标观众",
-                    ["general", "young", "professional", "children"],
-                    format_func=lambda x: {
-                        "general": "普通大众",
-                        "young": "年轻观众",
-                        "professional": "专业人士",
-                        "children": "儿童观众"
-                    }[x],
-                    key="narration_audience"
-                )
-            
-            with col2:
-                narration_length = st.selectbox(
-                    "解说长度",
-                    ["short", "medium", "long"],
-                    index=1,
-                    format_func=lambda x: {
-                        "short": "简短",
-                        "medium": "中等",
-                        "long": "详细"
-                    }[x],
-                    key="narration_length"
-                )
-            
-            if st.button("生成解说"):
-                try:
-                    # 提交解说生成任务
-                    response = requests.post(
-                        f"{API_BASE_URL}/narration/generate",
-                        json={
-                            "video_analysis": st.session_state.video_analysis,
-                            "style": style,
-                            "target_audience": target_audience,
-                            "narration_length": narration_length
-                        }
-                    )
-                    response.raise_for_status()
-                    task_info = response.json()
-                    task_id = task_info["task_id"]
-                    
-                    # 显示进度
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    # 等待生成完成
-                    final_status = wait_for_task(task_id, progress_bar, status_text)
-                    
-                    if final_status and final_status.get("status") == "completed":
-                        st.success("解说生成完成!")
-                        
-                        result = final_status.get("result", {})
-                        
-                        # 显示解说文本
-                        st.subheader("📄 生成的解说词")
-                        narration_text = result.get("narration_text", "")
-                        st.text_area("解说内容", narration_text, height=300)
-                        
-                        # 显示段落信息
-                        segments = result.get("segments", [])
-                        if segments:
-                            st.subheader("📋 解说段落")
-                            for i, segment in enumerate(segments, 1):
-                                timestamp = segment["timestamp"]
-                                content = segment["content"]
-                                duration = segment["duration"]
-                                st.write(f"{i}. [{timestamp:.1f}s] {content} (时长: {duration}s)")
-                        
-                        # 保存解说结果
-                        st.session_state.narration_result = result
-                    
-                    elif final_status and final_status.get("status") == "failed":
-                        st.error(f"解说生成失败: {final_status.get('error', '未知错误')}")
-                
-                except Exception as e:
-                    st.error(f"解说生成失败: {e}")
-        
-        else:
-            st.warning("⚠️ 请先在'视频分析'选项卡中分析视频")
+    with tabs[2]:
+        render_step_by_step_tab()
     
-    # ==========================================
-    # 语音合成
-    # ==========================================
-    with tab4:
-        st.header("🎤 语音合成")
+    with tabs[3]:
+        render_cost_management_tab()
+    
+    with tabs[4]:
+        render_system_status_tab()
+    
+    with tabs[5]:
+        render_help_tab()
+
+
+def render_config_tab():
+    """渲染配置选择选项卡"""
+    st.header("🎯 大模型组合配置")
+    
+    # 预设选择器
+    selected_preset = render_preset_selector()
+    
+    if selected_preset:
+        st.success(f"配置已更新为: {selected_preset}")
+        # 这里可以添加保存配置到环境变量的逻辑
+        st.info("💡 提示: 配置更改后需要重启应用才能生效")
+    
+    st.divider()
+    
+    # 服务状态
+    render_service_status()
+    
+    st.divider()
+    
+    # 详细服务信息
+    render_detailed_service_info()
+    
+    st.divider()
+    
+    # 配置指南
+    render_configuration_guide()
+
+
+def render_complete_workflow_tab():
+    """渲染完整流程选项卡"""
+    st.header("🎬 一键完整处理")
+    
+    # 检查API状态
+    if not check_api_health():
+        st.error("❌ API服务不可用，请先启动后端服务")
+        return
+    
+    # 文件上传
+    uploaded_file = st.file_uploader(
+        "选择视频文件",
+        type=['mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv'],
+        help="支持常见视频格式，最大500MB"
+    )
+    
+    if uploaded_file:
+        # 显示文件信息
+        st.write(f"**文件名**: {uploaded_file.name}")
+        st.write(f"**文件大小**: {uploaded_file.size / 1024 / 1024:.2f} MB")
         
-        # 语音测试
-        st.subheader("🔊 语音测试")
-        
+        # 处理参数配置
         col1, col2 = st.columns(2)
         
         with col1:
-            # 获取可用语音
-            try:
-                response = requests.get(f"{API_BASE_URL}/tts/voices")
-                voices_data = response.json()
-                
-                voice_options = []
-                voice_mapping = {}
-                
-                for gender, voices in voices_data.items():
-                    for voice in voices:
-                        display_name = f"{voice['name']} ({gender})"
-                        voice_options.append(display_name)
-                        voice_mapping[display_name] = voice['id']
-                
-                selected_voice_display = st.selectbox("选择语音", voice_options, key="test_voice")
-                test_voice_style = voice_mapping[selected_voice_display]
-                
-            except:
-                test_voice_style = st.selectbox(
-                    "选择语音",
-                    ["female_gentle", "female_lively", "female_intellectual",
-                     "male_steady", "male_young", "male_magnetic"],
-                    format_func=lambda x: {
-                        "female_gentle": "温柔女声",
-                        "female_lively": "活泼女声", 
-                        "female_intellectual": "知性女声",
-                        "male_steady": "沉稳男声",
-                        "male_young": "年轻男声",
-                        "male_magnetic": "磁性男声"
-                    }[x],
-                    key="test_voice"
-                )
+            st.subheader("🎭 解说配置")
+            narration_style = st.selectbox(
+                "解说风格",
+                ["professional", "humorous", "emotional", "suspenseful"],
+                format_func=lambda x: {
+                    "professional": "🎯 专业严肃",
+                    "humorous": "😄 幽默风趣", 
+                    "emotional": "❤️ 情感丰富",
+                    "suspenseful": "🔍 悬疑紧张"
+                }[x]
+            )
             
-            test_text = st.text_area(
-                "测试文本",
-                "这是一段测试语音，用来试听不同的声音效果。",
-                key="test_text"
+            target_audience = st.selectbox(
+                "目标观众",
+                ["general", "young", "professional", "children"],
+                format_func=lambda x: {
+                    "general": "👥 普通大众",
+                    "young": "🧑‍💼 年轻观众",
+                    "professional": "👔 专业人士", 
+                    "children": "👶 儿童观众"
+                }[x]
+            )
+            
+            narration_length = st.selectbox(
+                "解说长度",
+                ["short", "medium", "detailed"],
+                index=1,
+                format_func=lambda x: {
+                    "short": "📝 简短",
+                    "medium": "📄 中等",
+                    "detailed": "📚 详细"
+                }[x]
             )
         
         with col2:
-            test_speed = st.slider("语速", 0.5, 2.0, 1.0, 0.1, key="test_speed")
-            test_pitch = st.slider("音调", 0.5, 2.0, 1.0, 0.1, key="test_pitch")
-            test_volume = st.slider("音量", 0.5, 2.0, 1.0, 0.1, key="test_volume")
-        
-        if st.button("🎵 试听语音"):
+            st.subheader("🎙️ 语音配置")
+            
+            # 获取可用的TTS服务
             try:
-                # 提交测试请求
-                data = {
-                    "voice_style": test_voice_style,
-                    "test_text": test_text,
-                    "speed": test_speed,
-                    "pitch": test_pitch,
-                    "volume": test_volume
-                }
-                
-                response = requests.post(f"{API_BASE_URL}/tts/test", data=data)
-                response.raise_for_status()
-                
-                # 播放音频
-                st.audio(response.content, format="audio/wav")
-                st.success("语音测试完成!")
+                response = requests.get(f"{API_BASE_URL}/tts/voices")
+                if response.status_code == 200:
+                    voices = response.json().get("voices", [])
+                    voice_options = {voice["name"]: voice["display_name"] for voice in voices}
+                else:
+                    voice_options = {"default": "默认语音"}
+            except:
+                voice_options = {"default": "默认语音"}
             
-            except Exception as e:
-                st.error(f"语音测试失败: {e}")
+            selected_voice = st.selectbox("语音风格", list(voice_options.keys()), format_func=lambda x: voice_options[x])
+            
+            speech_speed = st.slider("语速", 0.5, 2.0, 1.0, 0.1)
+            speech_pitch = st.slider("音调", 0.5, 2.0, 1.0, 0.1)
+            speech_volume = st.slider("音量", 0.5, 2.0, 1.0, 0.1)
         
-        # 批量合成
-        if "narration_result" in st.session_state:
-            st.subheader("🎼 批量语音合成")
-            st.success("✅ 已有解说文本")
+        # 成本估算
+        st.subheader("💰 成本估算")
+        try:
+            # 估算参数
+            estimated_frames = 50  # 默认帧数
+            estimated_text_length = 500  # 默认文本长度
+            estimated_audio_length = 500  # 默认音频长度
             
-            col1, col2 = st.columns(2)
+            response = requests.get(
+                f"{API_BASE_URL}/cost/estimate",
+                params={
+                    "text_length": estimated_text_length,
+                    "audio_length": estimated_audio_length,
+                    "frame_count": estimated_frames
+                }
+            )
             
+            if response.status_code == 200:
+                cost_data = response.json()
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("LLM成本", f"¥{cost_data['llm_cost']:.4f}")
+                with col2:
+                    st.metric("TTS成本", f"¥{cost_data['tts_cost']:.4f}")
+                with col3:
+                    st.metric("视觉成本", f"¥{cost_data['vision_cost']:.4f}")
+                with col4:
+                    st.metric("总成本", f"¥{cost_data['total_cost']:.4f}")
+                
+                # 成本详情
+                with st.expander("成本详情"):
+                    for service_type, cost_info in cost_data['breakdown'].items():
+                        st.write(f"• {cost_info}")
+            
+        except Exception as e:
+            st.warning(f"无法获取成本估算: {e}")
+        
+        # 开始处理按钮
+        if st.button("🚀 开始完整处理", type="primary", use_container_width=True):
+            process_video_complete(
+                uploaded_file, 
+                narration_style, 
+                target_audience, 
+                narration_length,
+                selected_voice,
+                speech_speed,
+                speech_pitch,
+                speech_volume
+            )
+
+
+def process_video_complete(uploaded_file, narration_style, target_audience, narration_length, 
+                          voice, speed, pitch, volume):
+    """处理完整视频流程"""
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    try:
+        # 1. 上传文件
+        status_text.text("📤 上传视频文件...")
+        files = {"file": uploaded_file.getvalue()}
+        response = requests.post(f"{API_BASE_URL}/upload/video", files=files)
+        
+        if response.status_code != 200:
+            st.error(f"文件上传失败: {response.text}")
+            return
+        
+        upload_result = response.json()
+        video_path = upload_result["file_path"]
+        progress_bar.progress(20)
+        
+        # 2. 分析视频
+        status_text.text("🔍 分析视频内容...")
+        analysis_data = {"video_path": video_path}
+        response = requests.post(f"{API_BASE_URL}/analyze/video", json=analysis_data)
+        
+        if response.status_code != 200:
+            st.error(f"视频分析失败: {response.text}")
+            return
+        
+        analysis_result = response.json()
+        progress_bar.progress(50)
+        
+        # 3. 生成解说
+        status_text.text("📝 生成解说词...")
+        narration_data = {
+            "video_analysis": analysis_result,
+            "style": narration_style,
+            "target_audience": target_audience,
+            "narration_length": narration_length
+        }
+        response = requests.post(f"{API_BASE_URL}/narration/generate", json=narration_data)
+        
+        if response.status_code != 200:
+            st.error(f"解说生成失败: {response.text}")
+            return
+        
+        narration_result = response.json()
+        progress_bar.progress(70)
+        
+        # 4. 语音合成
+        status_text.text("🎙️ 合成语音...")
+        tts_data = {
+            "segments": narration_result["segments"],
+            "voice_style": voice,
+            "speed": speed,
+            "pitch": pitch,
+            "volume": volume
+        }
+        response = requests.post(f"{API_BASE_URL}/tts/batch", json=tts_data)
+        
+        if response.status_code != 200:
+            st.error(f"语音合成失败: {response.text}")
+            return
+        
+        tts_result = response.json()
+        progress_bar.progress(90)
+        
+        # 5. 生成最终视频
+        status_text.text("🎬 生成最终视频...")
+        video_data = {
+            "original_video": video_path,
+            "narration_segments": narration_result["segments"],
+            "audio_files": tts_result["audio_files"]
+        }
+        response = requests.post(f"{API_BASE_URL}/video/generate", json=video_data)
+        
+        if response.status_code != 200:
+            st.error(f"视频生成失败: {response.text}")
+            return
+        
+        final_result = response.json()
+        progress_bar.progress(100)
+        status_text.text("✅ 处理完成!")
+        
+        # 显示结果
+        st.success("🎉 视频处理完成!")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("**处理结果**")
+            st.write(f"• 原视频: {uploaded_file.name}")
+            st.write(f"• 解说段数: {len(narration_result['segments'])}")
+            st.write(f"• 处理时长: {final_result.get('processing_time', '未知')}")
+            st.write(f"• 实际成本: ¥{final_result.get('actual_cost', 0):.4f}")
+        
+        with col2:
+            # 下载链接
+            if "output_video" in final_result:
+                download_url = f"{API_BASE_URL}/files/download/video/{final_result['output_video']}"
+                st.markdown(f"[📥 下载解说视频]({download_url})")
+            
+            if "narration_text" in final_result:
+                download_url = f"{API_BASE_URL}/files/download/text/{final_result['narration_text']}"
+                st.markdown(f"[📄 下载解说文本]({download_url})")
+        
+        # 显示解说内容预览
+        with st.expander("📝 解说内容预览"):
+            for i, segment in enumerate(narration_result["segments"]):
+                st.write(f"**段落 {i+1}** ({segment['start_time']:.1f}s - {segment['end_time']:.1f}s)")
+                st.write(segment["text"])
+                st.write("---")
+    
+    except Exception as e:
+        st.error(f"处理过程中发生错误: {e}")
+        logger.error(f"视频处理错误: {e}")
+
+
+def render_step_by_step_tab():
+    """渲染分步处理选项卡"""
+    st.header("🔍 分步处理")
+    
+    step_tabs = st.tabs(["📤 上传视频", "🔍 视频分析", "📝 解说生成", "🎙️ 语音合成", "🎬 视频制作"])
+    
+    with step_tabs[0]:
+        render_upload_step()
+    
+    with step_tabs[1]:
+        render_analysis_step()
+    
+    with step_tabs[2]:
+        render_narration_step()
+    
+    with step_tabs[3]:
+        render_tts_step()
+    
+    with step_tabs[4]:
+        render_video_generation_step()
+
+
+def render_upload_step():
+    """渲染上传步骤"""
+    st.subheader("📤 视频上传")
+    
+    uploaded_file = st.file_uploader(
+        "选择视频文件",
+        type=['mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv'],
+        key="step_upload"
+    )
+    
+    if uploaded_file:
+        st.write(f"文件名: {uploaded_file.name}")
+        st.write(f"文件大小: {uploaded_file.size / 1024 / 1024:.2f} MB")
+        
+        if st.button("上传文件"):
+            with st.spinner("上传中..."):
+                files = {"file": uploaded_file.getvalue()}
+                response = requests.post(f"{API_BASE_URL}/upload/video", files=files)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    st.success(f"上传成功! 文件路径: {result['file_path']}")
+                    st.session_state.uploaded_video_path = result['file_path']
+                else:
+                    st.error(f"上传失败: {response.text}")
+
+
+def render_analysis_step():
+    """渲染分析步骤"""
+    st.subheader("🔍 视频分析")
+    
+    if 'uploaded_video_path' not in st.session_state:
+        st.warning("请先上传视频文件")
+        return
+    
+    video_path = st.session_state.uploaded_video_path
+    st.write(f"分析视频: {video_path}")
+    
+    if st.button("开始分析"):
+        with st.spinner("分析中..."):
+            data = {"video_path": video_path}
+            response = requests.post(f"{API_BASE_URL}/analyze/video", json=data)
+            
+            if response.status_code == 200:
+                result = response.json()
+                st.success("分析完成!")
+                st.session_state.video_analysis = result
+                
+                # 显示分析结果
+                with st.expander("分析结果"):
+                    st.json(result)
+            else:
+                st.error(f"分析失败: {response.text}")
+
+
+def render_narration_step():
+    """渲染解说生成步骤"""
+    st.subheader("📝 解说生成")
+    
+    if 'video_analysis' not in st.session_state:
+        st.warning("请先完成视频分析")
+        return
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        style = st.selectbox("解说风格", ["professional", "humorous", "emotional", "suspenseful"])
+        target_audience = st.selectbox("目标观众", ["general", "young", "professional", "children"])
+    
+    with col2:
+        narration_length = st.selectbox("解说长度", ["short", "medium", "detailed"])
+    
+    if st.button("生成解说"):
+        with st.spinner("生成中..."):
+            data = {
+                "video_analysis": st.session_state.video_analysis,
+                "style": style,
+                "target_audience": target_audience,
+                "narration_length": narration_length
+            }
+            response = requests.post(f"{API_BASE_URL}/narration/generate", json=data)
+            
+            if response.status_code == 200:
+                result = response.json()
+                st.success("解说生成完成!")
+                st.session_state.narration_result = result
+                
+                # 显示解说内容
+                for i, segment in enumerate(result["segments"]):
+                    st.write(f"**段落 {i+1}** ({segment['start_time']:.1f}s - {segment['end_time']:.1f}s)")
+                    st.write(segment["text"])
+                    st.write("---")
+            else:
+                st.error(f"解说生成失败: {response.text}")
+
+
+def render_tts_step():
+    """渲染语音合成步骤"""
+    st.subheader("🎙️ 语音合成")
+    
+    if 'narration_result' not in st.session_state:
+        st.warning("请先完成解说生成")
+        return
+    
+    # 语音参数配置
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # 获取可用语音
+        try:
+            response = requests.get(f"{API_BASE_URL}/tts/voices")
+            if response.status_code == 200:
+                voices = response.json().get("voices", [])
+                voice_options = {voice["name"]: voice["display_name"] for voice in voices}
+            else:
+                voice_options = {"default": "默认语音"}
+        except:
+            voice_options = {"default": "默认语音"}
+        
+        selected_voice = st.selectbox("语音风格", list(voice_options.keys()), format_func=lambda x: voice_options[x])
+        speed = st.slider("语速", 0.5, 2.0, 1.0, 0.1)
+    
+    with col2:
+        pitch = st.slider("音调", 0.5, 2.0, 1.0, 0.1)
+        volume = st.slider("音量", 0.5, 2.0, 1.0, 0.1)
+    
+    if st.button("开始合成"):
+        with st.spinner("合成中..."):
+            data = {
+                "segments": st.session_state.narration_result["segments"],
+                "voice_style": selected_voice,
+                "speed": speed,
+                "pitch": pitch,
+                "volume": volume
+            }
+            response = requests.post(f"{API_BASE_URL}/tts/batch", json=data)
+            
+            if response.status_code == 200:
+                result = response.json()
+                st.success("语音合成完成!")
+                st.session_state.tts_result = result
+                
+                # 显示音频文件列表
+                st.write("生成的音频文件:")
+                for audio_file in result["audio_files"]:
+                    st.write(f"• {audio_file}")
+            else:
+                st.error(f"语音合成失败: {response.text}")
+
+
+def render_video_generation_step():
+    """渲染视频生成步骤"""
+    st.subheader("🎬 视频制作")
+    
+    if 'tts_result' not in st.session_state:
+        st.warning("请先完成语音合成")
+        return
+    
+    if st.button("生成最终视频"):
+        with st.spinner("生成中..."):
+            data = {
+                "original_video": st.session_state.uploaded_video_path,
+                "narration_segments": st.session_state.narration_result["segments"],
+                "audio_files": st.session_state.tts_result["audio_files"]
+            }
+            response = requests.post(f"{API_BASE_URL}/video/generate", json=data)
+            
+            if response.status_code == 200:
+                result = response.json()
+                st.success("视频生成完成!")
+                
+                # 下载链接
+                if "output_video" in result:
+                    download_url = f"{API_BASE_URL}/files/download/video/{result['output_video']}"
+                    st.markdown(f"[📥 下载解说视频]({download_url})")
+                
+                st.write(f"处理时长: {result.get('processing_time', '未知')}")
+                st.write(f"实际成本: ¥{result.get('actual_cost', 0):.4f}")
+            else:
+                st.error(f"视频生成失败: {response.text}")
+
+
+def render_cost_management_tab():
+    """渲染成本管理选项卡"""
+    st.header("💰 成本管理")
+    
+    # 成本计算器
+    render_cost_calculator()
+    
+    st.divider()
+    
+    # 成本统计
+    st.subheader("📊 成本统计")
+    try:
+        response = requests.get(f"{API_BASE_URL}/cost/stats")
+        if response.status_code == 200:
+            stats = response.json()
+            
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
-                batch_voice_style = st.selectbox(
-                    "语音风格",
-                    ["female_gentle", "female_lively", "female_intellectual",
-                     "male_steady", "male_young", "male_magnetic"],
-                    format_func=lambda x: {
-                        "female_gentle": "温柔女声",
-                        "female_lively": "活泼女声",
-                        "female_intellectual": "知性女声", 
-                        "male_steady": "沉稳男声",
-                        "male_young": "年轻男声",
-                        "male_magnetic": "磁性男声"
-                    }[x],
-                    key="batch_voice"
-                )
+                st.metric("今日成本", f"¥{stats.get('daily_cost', 0):.4f}")
+            with col2:
+                st.metric("本月成本", f"¥{stats.get('monthly_cost', 0):.4f}")
+            with col3:
+                st.metric("总成本", f"¥{stats.get('total_cost', 0):.4f}")
+            with col4:
+                st.metric("处理视频数", stats.get('video_count', 0))
+            
+            # 成本限制
+            st.subheader("⚙️ 成本限制")
+            col1, col2 = st.columns(2)
+            with col1:
+                daily_limit = stats.get('daily_limit', 50)
+                daily_usage = stats.get('daily_cost', 0) / daily_limit * 100
+                st.metric("日度限制", f"¥{daily_limit}", f"{daily_usage:.1f}%")
+                st.progress(min(daily_usage / 100, 1.0))
             
             with col2:
-                batch_speed = st.slider("语速", 0.5, 2.0, 1.0, 0.1, key="batch_speed")
-                batch_pitch = st.slider("音调", 0.5, 2.0, 1.0, 0.1, key="batch_pitch")
-                batch_volume = st.slider("音量", 0.5, 2.0, 1.0, 0.1, key="batch_volume")
-            
-            if st.button("🎵 批量合成语音"):
-                try:
-                    # 提交批量合成任务
-                    response = requests.post(
-                        f"{API_BASE_URL}/tts/batch",
-                        json={
-                            "segments": st.session_state.narration_result["segments"],
-                            "voice_style": batch_voice_style,
-                            "speed": batch_speed,
-                            "pitch": batch_pitch,
-                            "volume": batch_volume
-                        }
-                    )
-                    response.raise_for_status()
-                    task_info = response.json()
-                    task_id = task_info["task_id"]
-                    
-                    # 显示进度
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    # 等待合成完成
-                    final_status = wait_for_task(task_id, progress_bar, status_text)
-                    
-                    if final_status and final_status.get("status") == "completed":
-                        st.success("批量语音合成完成!")
-                        
-                        result = final_status.get("result", {})
-                        synthesized_segments = result.get("segments", [])
-                        
-                        # 显示合成结果
-                        st.subheader("🎵 合成的语音段落")
-                        for i, segment in enumerate(synthesized_segments, 1):
-                            timestamp = segment["timestamp"]
-                            content = segment["content"]
-                            audio_path = segment.get("audio_path", "")
-                            
-                            st.write(f"{i}. [{timestamp:.1f}s] {content}")
-                            
-                            if audio_path:
-                                # 播放音频
-                                try:
-                                    audio_url = f"{API_BASE_URL}/files/download/temp/{Path(audio_path).name}"
-                                    st.audio(audio_url)
-                                except:
-                                    st.caption("音频文件不可用")
-                        
-                        # 保存合成结果
-                        st.session_state.synthesized_segments = synthesized_segments
-                    
-                    elif final_status and final_status.get("status") == "failed":
-                        st.error(f"批量合成失败: {final_status.get('error', '未知错误')}")
-                
-                except Exception as e:
-                    st.error(f"批量合成失败: {e}")
+                monthly_limit = stats.get('monthly_limit', 500)
+                monthly_usage = stats.get('monthly_cost', 0) / monthly_limit * 100
+                st.metric("月度限制", f"¥{monthly_limit}", f"{monthly_usage:.1f}%")
+                st.progress(min(monthly_usage / 100, 1.0))
         
-        else:
-            st.info("💡 请先在'解说生成'选项卡中生成解说词")
+    except Exception as e:
+        st.error(f"无法获取成本统计: {e}")
     
-    # ==========================================
-    # 文件管理
-    # ==========================================
-    with tab5:
-        st.header("📁 文件管理")
-        
-        # 文件列表
-        try:
-            response = requests.get(f"{API_BASE_URL}/files/list")
-            response.raise_for_status()
-            files_data = response.json()
-            files = files_data.get("files", [])
-            
-            if files:
-                # 按类型分组显示
-                input_files = [f for f in files if f["type"] == "input"]
-                output_files = [f for f in files if f["type"] == "output"]
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.subheader("📥 输入文件")
-                    for file in input_files:
-                        st.write(f"📄 {file['name']}")
-                        st.caption(f"大小: {file['size'] / (1024*1024):.1f}MB")
-                        download_url = f"{API_BASE_URL}/files/download/input/{file['name']}"
-                        st.markdown(f"[下载]({download_url})")
-                        st.divider()
-                
-                with col2:
-                    st.subheader("📤 输出文件")
-                    for file in output_files:
-                        st.write(f"📄 {file['name']}")
-                        st.caption(f"大小: {file['size'] / (1024*1024):.1f}MB")
-                        download_url = f"{API_BASE_URL}/files/download/output/{file['name']}"
-                        st.markdown(f"[下载]({download_url})")
-                        st.divider()
-            
-            else:
-                st.info("📂 暂无文件")
-        
-        except Exception as e:
-            st.error(f"获取文件列表失败: {e}")
-        
-        # 清理临时文件
-        st.subheader("🧹 文件清理")
-        if st.button("清理临时文件"):
+    st.divider()
+    
+    # 方案对比
+    render_preset_comparison()
+
+
+def render_system_status_tab():
+    """渲染系统状态选项卡"""
+    st.header("📊 系统状态")
+    
+    # 服务状态
+    render_service_status()
+    
+    st.divider()
+    
+    # 详细服务信息
+    render_detailed_service_info()
+    
+    st.divider()
+    
+    # 系统信息
+    st.subheader("🖥️ 系统信息")
+    system_info = get_system_info()
+    if system_info:
+        with st.expander("详细信息"):
+            st.json(system_info)
+    
+    # 健康检查
+    st.subheader("🏥 健康检查")
+    if st.button("执行健康检查"):
+        with st.spinner("检查中..."):
             try:
-                response = requests.delete(f"{API_BASE_URL}/files/cleanup")
-                response.raise_for_status()
-                result = response.json()
-                st.success(result["message"])
+                response = requests.get(f"{API_BASE_URL}/health/detailed")
+                if response.status_code == 200:
+                    health_data = response.json()
+                    
+                    for service, status in health_data.items():
+                        if status["healthy"]:
+                            st.success(f"✅ {service}: 正常")
+                        else:
+                            st.error(f"❌ {service}: {status.get('error', '异常')}")
+                else:
+                    st.error("健康检查失败")
             except Exception as e:
-                st.error(f"清理失败: {e}")
+                st.error(f"健康检查错误: {e}")
+
+
+def render_help_tab():
+    """渲染帮助文档选项卡"""
+    st.header("📖 帮助文档")
+    
+    help_tabs = st.tabs(["🚀 快速开始", "🔧 配置指南", "💡 使用技巧", "🐛 故障排除", "📞 获取支持"])
+    
+    with help_tabs[0]:
+        st.subheader("🚀 快速开始")
+        st.markdown("""
+        ### 1. 选择配置方案
+        - 在"配置选择"选项卡中选择适合的大模型组合
+        - 推荐新手选择"最高性价比组合"
+        
+        ### 2. 配置API密钥
+        - 编辑项目根目录下的 `.env` 文件
+        - 添加所选方案对应的API密钥
+        - 重启应用以加载新配置
+        
+        ### 3. 开始使用
+        - 上传视频文件
+        - 选择解说风格和语音参数
+        - 点击"开始完整处理"
+        - 等待处理完成并下载结果
+        """)
+    
+    with help_tabs[1]:
+        st.subheader("🔧 配置指南")
+        render_configuration_guide()
+    
+    with help_tabs[2]:
+        st.subheader("💡 使用技巧")
+        st.markdown("""
+        ### 成本优化技巧
+        - 选择"最经济组合"可大幅降低成本
+        - 减少视频帧采样频率
+        - 使用Edge-TTS免费语音合成
+        - 批量处理多个视频
+        
+        ### 质量提升技巧
+        - 选择"质量最高组合"获得最佳效果
+        - 增加视频帧采样数量
+        - 使用高质量TTS服务
+        - 选择合适的解说风格和目标观众
+        
+        ### 处理速度优化
+        - 减少并发任务数量
+        - 选择响应速度快的服务
+        - 避免在高峰期处理
+        """)
+    
+    with help_tabs[3]:
+        st.subheader("🐛 故障排除")
+        st.markdown("""
+        ### 常见问题
+        
+        **API服务不可用**
+        - 检查后端服务是否启动: `python start.py`
+        - 检查端口是否被占用
+        - 查看日志文件: `logs/aimovie_cloud.log`
+        
+        **API密钥配置错误**
+        - 确认 `.env` 文件存在且格式正确
+        - 验证API密钥是否有效
+        - 检查网络连接
+        
+        **处理失败**
+        - 检查视频文件格式是否支持
+        - 确认文件大小不超过限制
+        - 查看错误日志获取详细信息
+        
+        **成本超限**
+        - 调整成本限制设置
+        - 选择更经济的服务组合
+        - 监控API使用量
+        """)
+    
+    with help_tabs[4]:
+        st.subheader("📞 获取支持")
+        st.markdown("""
+        ### 支持渠道
+        
+        - **GitHub Issues**: [报告问题](https://github.com/cflank/AIMovie/issues)
+        - **功能建议**: [提交建议](https://github.com/cflank/AIMovie/issues/new?template=feature_request.md)
+        - **讨论交流**: [GitHub Discussions](https://github.com/cflank/AIMovie/discussions)
+        - **完整文档**: [使用指南](https://github.com/cflank/AIMovie/blob/master/CLOUD_USAGE_GUIDE.md)
+        - **API文档**: [在线文档](http://127.0.0.1:8000/docs)
+        
+        ### 项目信息
+        - **GitHub**: https://github.com/cflank/AIMovie
+        - **版本**: v1.0.0
+        - **许可证**: MIT License
+        """)
+
+
+def main():
+    """主函数"""
+    # 渲染页面头部
+    render_header()
+    
+    # 渲染侧边栏
+    render_sidebar()
+    
+    # 渲染主要内容
+    render_main_tabs()
+    
+    # 页脚
+    st.divider()
+    st.markdown("""
+    <div style="text-align: center; color: #666; padding: 2rem 0;">
+        <p>🎬 AIMovie Cloud v1.0.0 | 
+        <a href="https://github.com/cflank/AIMovie" target="_blank">GitHub</a> | 
+        <a href="https://github.com/cflank/AIMovie/blob/master/CLOUD_USAGE_GUIDE.md" target="_blank">文档</a> | 
+        <a href="https://github.com/cflank/AIMovie/issues" target="_blank">反馈</a>
+        </p>
+        <p>Made with ❤️ by AIMovie Team</p>
+    </div>
+    """, unsafe_allow_html=True)
+
 
 if __name__ == "__main__":
     main() 
