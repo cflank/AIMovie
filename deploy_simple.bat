@@ -151,5 +151,9 @@ if /i "%choice%"=="y" (
 )
 
 echo.
-echo 按任意键退出...
-pause >nul 
+echo 🔄 正在进入虚拟环境...
+echo 💡 您现在可以直接运行Python命令，例如：
+echo    python start_cloud.py
+echo    python start.py
+echo.
+call aimovie_env\Scripts\activate.bat 
