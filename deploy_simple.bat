@@ -2,19 +2,13 @@
 chcp 65001 >nul
 echo.
 echo ========================================
-echo 🎬 AIMovie Cloud - Windows 一键部署
+echo 🎬 AIMovie Cloud - 简化部署
 echo ========================================
 echo.
 
-:: 检查管理员权限
-net session >nul 2>&1
-if %errorLevel% == 0 (
-    echo ✅ 管理员权限检查通过
-) else (
-    echo ❌ 需要管理员权限，请右键"以管理员身份运行"
-    pause
-    exit /b 1
-)
+:: 设置项目目录
+set PROJECT_DIR=%CD%
+echo 📁 项目目录: %PROJECT_DIR%
 
 :: 检查Python安装
 echo 🔍 检查Python环境...
@@ -23,41 +17,11 @@ if %errorLevel% == 0 (
     echo ✅ Python已安装
     python --version
 ) else (
-    echo ❌ Python未安装，正在安装Python 3.11...
-    winget install Python.Python.3.11 --accept-package-agreements --accept-source-agreements
-    if %errorLevel% neq 0 (
-        echo ❌ Python安装失败，请手动安装Python 3.8+
-        pause
-        exit /b 1
-    )
-    echo ✅ Python安装完成，请重新运行此脚本
+    echo ❌ Python未安装，请先安装Python 3.8+
+    echo 💡 下载地址: https://www.python.org/downloads/
     pause
-    exit /b 0
+    exit /b 1
 )
-
-:: 检查Git安装
-echo 🔍 检查Git环境...
-git --version >nul 2>&1
-if %errorLevel% == 0 (
-    echo ✅ Git已安装
-    git --version
-) else (
-    echo ❌ Git未安装，正在安装Git...
-    winget install Git.Git --accept-package-agreements --accept-source-agreements
-    if %errorLevel% neq 0 (
-        echo ❌ Git安装失败，请手动安装Git
-        pause
-        exit /b 1
-    )
-    echo ✅ Git安装完成
-)
-
-:: 设置项目目录
-set PROJECT_DIR=%CD%
-echo 📁 项目目录: %PROJECT_DIR%
-
-:: 使用当前目录作为项目目录
-echo ✅ 使用当前目录作为项目目录
 
 :: 创建虚拟环境
 echo 🔧 创建Python虚拟环境...
@@ -83,29 +47,8 @@ python -m pip install --upgrade pip
 
 :: 安装依赖
 echo 📦 安装项目依赖...
-if exist "requirements_cloud_minimal.txt" (
-    echo 使用最小化云端依赖...
-    echo 🔄 尝试从文件安装...
-    pip install -r requirements_cloud_minimal.txt
-    if %errorLevel% neq 0 (
-        echo ⚠️ 文件安装失败，使用手动安装...
-        pip install fastapi uvicorn streamlit pydantic python-dotenv requests httpx aiofiles pillow python-multipart edge-tts tqdm colorama
-    )
-) else if exist "requirements_cloud.txt" (
-    echo 使用完整云端依赖...
-    echo 🔄 尝试从文件安装...
-    pip install -r requirements_cloud.txt
-    if %errorLevel% neq 0 (
-        echo ⚠️ 文件安装失败，使用手动安装...
-        pip install fastapi uvicorn streamlit pydantic python-dotenv requests httpx aiofiles pillow python-multipart edge-tts tqdm colorama
-    )
-) else if exist "requirements.txt" (
-    echo 使用标准依赖...
-    pip install -r requirements.txt
-) else (
-    echo ⚠️ 未找到依赖文件，安装基础依赖...
-    pip install fastapi uvicorn streamlit pydantic python-dotenv requests httpx aiofiles pillow python-multipart edge-tts tqdm colorama
-)
+echo 🔄 使用手动安装方式（避免编码问题）...
+pip install fastapi uvicorn streamlit pydantic python-dotenv requests httpx aiofiles pillow python-multipart edge-tts tqdm colorama
 
 if %errorLevel% neq 0 (
     echo ❌ 依赖安装失败
@@ -169,22 +112,6 @@ echo echo 按任意键退出...
 echo pause
 ) > "启动AIMovie.bat"
 
-:: 创建桌面快捷方式
-echo 🖥️ 创建桌面快捷方式...
-powershell -Command "$WshShell = New-Object -comObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%USERPROFILE%\Desktop\AIMovie Cloud.lnk'); $Shortcut.TargetPath = '%PROJECT_DIR%\启动AIMovie.bat'; $Shortcut.WorkingDirectory = '%PROJECT_DIR%'; $Shortcut.IconLocation = '%PROJECT_DIR%\启动AIMovie.bat'; $Shortcut.Save()"
-
-:: 检查端口占用
-echo 🔍 检查端口占用...
-netstat -an | findstr ":8000" >nul
-if %errorLevel% == 0 (
-    echo ⚠️ 端口8000已被占用，请关闭占用该端口的程序
-)
-
-netstat -an | findstr ":8501" >nul
-if %errorLevel% == 0 (
-    echo ⚠️ 端口8501已被占用，请关闭占用该端口的程序
-)
-
 :: 创建数据目录
 echo 📁 创建数据目录...
 if not exist "data\input" mkdir "data\input"
@@ -198,12 +125,12 @@ echo 🎉 AIMovie Cloud 部署完成！
 echo ========================================
 echo.
 echo 📍 项目位置: %PROJECT_DIR%
-echo 🖥️ 桌面快捷方式已创建
+echo 📝 启动脚本: 启动AIMovie.bat
 echo.
 echo 📋 下一步操作:
 echo 1. 编辑配置文件: %PROJECT_DIR%\.env
 echo 2. 添加至少一个LLM服务的API密钥
-echo 3. 双击桌面的"AIMovie Cloud"快捷方式启动
+echo 3. 双击"启动AIMovie.bat"启动应用
 echo.
 echo 💡 推荐配置 (高性价比):
 echo    - 通义千问: QWEN_API_KEY
@@ -220,7 +147,7 @@ if /i "%choice%"=="y" (
     echo 🚀 正在启动AIMovie...
     start "" "%PROJECT_DIR%\启动AIMovie.bat"
 ) else (
-    echo 💡 您可以稍后双击桌面的"AIMovie Cloud"快捷方式启动
+    echo 💡 您可以稍后双击"启动AIMovie.bat"启动应用
 )
 
 echo.
