@@ -74,7 +74,24 @@ def check_dependencies():
     
     if missing_packages:
         logger.error(f"缺少依赖包: {', '.join(missing_packages)}")
-        logger.info("请运行: pip install -r requirements.txt")
+        
+        # 检查可用的requirements文件
+        req_files = []
+        if Path('requirements_cloud.txt').exists():
+            req_files.append('requirements_cloud.txt')
+        if Path('requirements_cloud_minimal.txt').exists():
+            req_files.append('requirements_cloud_minimal.txt')
+        if Path('requirements.txt').exists():
+            req_files.append('requirements.txt')
+        
+        if req_files:
+            logger.info(f"请选择安装依赖:")
+            for i, req_file in enumerate(req_files, 1):
+                logger.info(f"  {i}. pip install -r {req_file}")
+            logger.info("推荐使用 requirements_cloud_minimal.txt 进行最小化安装")
+        else:
+            logger.info("请手动安装缺少的依赖包")
+        
         sys.exit(1)
     
     logger.info("依赖包检查通过")

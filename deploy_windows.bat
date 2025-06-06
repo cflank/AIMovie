@@ -105,7 +105,21 @@ python -m pip install --upgrade pip
 
 :: 安装依赖
 echo 📦 安装项目依赖...
-pip install -r requirements.txt
+if exist "requirements_cloud_minimal.txt" (
+    echo 使用最小化云端依赖...
+    pip install -r requirements_cloud_minimal.txt
+) else if exist "requirements_cloud.txt" (
+    echo 使用完整云端依赖...
+    pip install -r requirements_cloud.txt
+) else if exist "requirements.txt" (
+    echo 使用标准依赖...
+    pip install -r requirements.txt
+) else (
+    echo ❌ 未找到依赖文件
+    pause
+    exit /b 1
+)
+
 if %errorLevel% neq 0 (
     echo ❌ 依赖安装失败
     pause

@@ -171,10 +171,28 @@ setup_venv() {
 install_python_deps() {
     print_info "安装Python依赖..."
     
-    pip install -r requirements.txt || {
-        print_error "依赖安装失败"
+    if [[ -f "requirements_cloud_minimal.txt" ]]; then
+        print_info "使用最小化云端依赖..."
+        pip install -r requirements_cloud_minimal.txt || {
+            print_error "依赖安装失败"
+            exit 1
+        }
+    elif [[ -f "requirements_cloud.txt" ]]; then
+        print_info "使用完整云端依赖..."
+        pip install -r requirements_cloud.txt || {
+            print_error "依赖安装失败"
+            exit 1
+        }
+    elif [[ -f "requirements.txt" ]]; then
+        print_info "使用标准依赖..."
+        pip install -r requirements.txt || {
+            print_error "依赖安装失败"
+            exit 1
+        }
+    else
+        print_error "未找到依赖文件"
         exit 1
-    }
+    fi
     
     print_success "Python依赖安装完成"
 }
