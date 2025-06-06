@@ -26,6 +26,7 @@ MANIFEST
 venv/
 env/
 ENV/
+aimovie_env/
 
 # IDE和编辑器
 .vscode/
