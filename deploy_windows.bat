@@ -56,18 +56,8 @@ if %errorLevel% == 0 (
 set PROJECT_DIR=%CD%
 echo 📁 项目目录: %PROJECT_DIR%
 
-:: 检查项目文件
-echo 🔍 检查项目文件...
-if exist "start.py" (
-    echo ✅ 项目文件已存在
-) else (
-    echo ❌ 当前目录不是AIMovie项目目录
-    echo 请确保在AIMovie项目根目录下运行此脚本
-    pause
-    exit /b 1
-)
-
-echo ✅ 项目代码准备完成
+:: 使用当前目录作为项目目录
+echo ✅ 使用当前目录作为项目目录
 
 :: 创建虚拟环境
 echo 🔧 创建Python虚拟环境...
@@ -103,9 +93,8 @@ if exist "requirements_cloud_minimal.txt" (
     echo 使用标准依赖...
     pip install -r requirements.txt
 ) else (
-    echo ❌ 未找到依赖文件
-    pause
-    exit /b 1
+    echo ⚠️ 未找到依赖文件，安装基础依赖...
+    pip install streamlit fastapi uvicorn python-dotenv requests
 )
 
 if %errorLevel% neq 0 (
@@ -117,9 +106,14 @@ if %errorLevel% neq 0 (
 :: 创建配置文件
 echo ⚙️ 创建配置文件...
 if not exist ".env" (
-    copy env_template.txt .env
-    echo ✅ 配置文件已创建: .env
-    echo ⚠️ 请编辑 .env 文件，添加您的API密钥
+    if exist "env_template.txt" (
+        copy env_template.txt .env
+        echo ✅ 配置文件已创建: .env
+        echo ⚠️ 请编辑 .env 文件，添加您的API密钥
+    ) else (
+        echo ⚠️ 未找到 env_template.txt，跳过配置文件创建
+        echo 💡 您可以手动创建 .env 文件来配置API密钥
+    )
 ) else (
     echo ✅ 配置文件已存在
 )
@@ -139,7 +133,16 @@ echo echo.
 echo echo 🌐 Web界面: http://127.0.0.1:8501
 echo echo 🔧 API文档: http://127.0.0.1:8000/docs
 echo echo.
-echo python start.py
+echo if exist "start.py" ^(
+echo     python start.py
+echo ^) else if exist "main.py" ^(
+echo     python main.py
+echo ^) else if exist "app.py" ^(
+echo     python app.py
+echo ^) else ^(
+echo     echo ❌ 未找到启动文件 ^(start.py, main.py, app.py^)
+echo     echo 请手动运行您的Python应用
+echo ^)
 echo pause
 ) > "启动AIMovie.bat"
 
