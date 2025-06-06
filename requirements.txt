@@ -1,0 +1,109 @@
+# ==========================================
+# AIMovie Cloud Dependencies
+# Cloud Version - No GPU Dependencies
+# ==========================================
+
+# Core Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+streamlit>=1.28.0
+python-dotenv>=1.0.0
+
+# HTTP Requests
+requests>=2.31.0
+httpx>=0.25.0
+
+# Data Processing
+pandas>=2.1.0
+numpy>=1.24.0
+pillow>=10.0.0
+
+# Video/Audio Processing
+opencv-python>=4.8.0
+moviepy>=1.0.3
+librosa>=0.10.0
+soundfile>=0.12.0
+
+# Text-to-Speech
+edge-tts>=6.1.0
+
+# Alibaba Cloud SDK
+aliyun-python-sdk-core>=2.13.0
+oss2>=2.18.0
+
+# Tencent Cloud SDK
+tencentcloud-sdk-python>=3.0.0
+
+# Baidu AI SDK
+baidu-aip>=4.16.0
+
+# File Processing
+pathlib2>=2.3.0
+aiofiles>=23.2.0
+
+# Logging and Monitoring
+loguru>=0.7.0
+
+# Data Validation
+pydantic>=2.4.0
+
+# Async Support
+asyncio-mqtt>=0.16.0
+
+# Utilities
+tqdm>=4.66.0
+python-multipart>=0.0.6
+
+# Development Tools (Optional)
+pytest>=7.4.0
+black>=23.9.0
+flake8>=6.1.0
+
+# ==========================================
+# Cloud API Client Libraries
+# ==========================================
+
+# Qwen (Tongyi Qianwen)
+dashscope>=1.14.0
+
+# OpenAI (Backup)
+openai>=1.3.0
+
+# ==========================================
+# Installation Instructions
+# ==========================================
+# 
+# 1. Create virtual environment (recommended):
+#    python -m venv aimovie_cloud
+#    source aimovie_cloud/bin/activate  # Linux/macOS
+#    aimovie_cloud\Scripts\activate     # Windows
+# 
+# 2. Install dependencies:
+#    pip install -r requirements_cloud.txt
+# 
+# 3. Configure environment variables:
+#    cp cloud_env_template.txt .env
+#    # Edit .env file and add your API keys
+# 
+# 4. Start services:
+#    python cloud_start.py
+# 
+# ==========================================
+# System Requirements
+# ==========================================
+# 
+# Python: >= 3.8
+# OS: Windows 10+, macOS 10.15+, Ubuntu 18.04+
+# Memory: >= 4GB (8GB+ recommended)
+# Storage: >= 10GB available space
+# Network: Stable internet connection for API calls
+# 
+# ==========================================
+# Performance Optimization Suggestions
+# ==========================================
+# 
+# 1. Use SSD storage for improved file I/O performance
+# 2. Ensure stable network connection to reduce API call failures
+# 3. Set reasonable concurrency to avoid API throttling
+# 4. Regularly clean up temporary files to free up storage space
+# 5. Monitor API usage to control costs 
