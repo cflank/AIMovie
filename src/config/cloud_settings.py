@@ -60,6 +60,22 @@ class CloudSettings:
         self._load_settings()
         self._validate_configuration()
     
+    def _parse_int_env(self, key: str, default: str) -> int:
+        """解析整数环境变量，自动清理注释"""
+        value = os.getenv(key, default)
+        # 清理注释（# 后面的内容）
+        if '#' in value:
+            value = value.split('#')[0].strip()
+        return int(value)
+    
+    def _parse_float_env(self, key: str, default: str) -> float:
+        """解析浮点数环境变量，自动清理注释"""
+        value = os.getenv(key, default)
+        # 清理注释（# 后面的内容）
+        if '#' in value:
+            value = value.split('#')[0].strip()
+        return float(value)
+    
     def _get_preset_type(self) -> PresetType:
         """获取预设类型"""
         preset_name = os.getenv("PRESET_CONFIG", "cost_effective")
@@ -73,14 +89,14 @@ class CloudSettings:
         """加载配置"""
         # 基础配置
         self.api_host = os.getenv("API_HOST", "127.0.0.1")
-        self.api_port = int(os.getenv("API_PORT", "8000"))
-        self.streamlit_port = int(os.getenv("STREAMLIT_PORT", "8501"))
+        self.api_port = self._parse_int_env("API_PORT", "8000")
+        self.streamlit_port = self._parse_int_env("STREAMLIT_PORT", "8501")
         
-        # 处理配置
-        self.max_file_size = int(os.getenv("MAX_FILE_SIZE", "500"))
-        self.frame_sample_interval = int(os.getenv("FRAME_SAMPLE_INTERVAL", "3"))
-        self.max_frames_per_video = int(os.getenv("MAX_FRAMES_PER_VIDEO", "50"))
-        self.max_concurrent_tasks = int(os.getenv("MAX_CONCURRENT_TASKS", "3"))
+        # 处理配置（清理注释）
+        self.max_file_size = self._parse_int_env("MAX_FILE_SIZE", "500")
+        self.frame_sample_interval = self._parse_int_env("FRAME_SAMPLE_INTERVAL", "3")
+        self.max_frames_per_video = self._parse_int_env("MAX_FRAMES_PER_VIDEO", "50")
+        self.max_concurrent_tasks = self._parse_int_env("MAX_CONCURRENT_TASKS", "3")
         
         # 质量配置
         self.video_quality = os.getenv("VIDEO_QUALITY", "medium")
@@ -88,25 +104,25 @@ class CloudSettings:
         self.output_format = os.getenv("OUTPUT_FORMAT", "mp4")
         
         # 超时配置
-        self.api_timeout = int(os.getenv("API_TIMEOUT", "60"))
-        self.llm_timeout = int(os.getenv("LLM_TIMEOUT", "120"))
-        self.tts_timeout = int(os.getenv("TTS_TIMEOUT", "180"))
-        self.vision_timeout = int(os.getenv("VISION_TIMEOUT", "90"))
+        self.api_timeout = self._parse_int_env("API_TIMEOUT", "60")
+        self.llm_timeout = self._parse_int_env("LLM_TIMEOUT", "120")
+        self.tts_timeout = self._parse_int_env("TTS_TIMEOUT", "180")
+        self.vision_timeout = self._parse_int_env("VISION_TIMEOUT", "90")
         
         # 重试配置
-        self.api_retry_times = int(os.getenv("API_RETRY_TIMES", "3"))
-        self.retry_delay = int(os.getenv("RETRY_DELAY", "1"))
+        self.api_retry_times = self._parse_int_env("API_RETRY_TIMES", "3")
+        self.retry_delay = self._parse_int_env("RETRY_DELAY", "1")
         
         # 并发控制
-        self.max_concurrent_llm_requests = int(os.getenv("MAX_CONCURRENT_LLM_REQUESTS", "5"))
-        self.max_concurrent_tts_requests = int(os.getenv("MAX_CONCURRENT_TTS_REQUESTS", "3"))
-        self.max_concurrent_vision_requests = int(os.getenv("MAX_CONCURRENT_VISION_REQUESTS", "2"))
+        self.max_concurrent_llm_requests = self._parse_int_env("MAX_CONCURRENT_LLM_REQUESTS", "5")
+        self.max_concurrent_tts_requests = self._parse_int_env("MAX_CONCURRENT_TTS_REQUESTS", "3")
+        self.max_concurrent_vision_requests = self._parse_int_env("MAX_CONCURRENT_VISION_REQUESTS", "2")
         
         # 成本控制
-        self.cost_tracker.daily_limit = float(os.getenv("DAILY_COST_LIMIT", "50.0"))
-        self.cost_tracker.monthly_limit = float(os.getenv("MONTHLY_COST_LIMIT", "500.0"))
-        self.cost_tracker.single_video_limit = float(os.getenv("SINGLE_VIDEO_COST_LIMIT", "5.0"))
-        self.cost_tracker.warning_threshold = float(os.getenv("COST_WARNING_THRESHOLD", "0.8"))
+        self.cost_tracker.daily_limit = self._parse_float_env("DAILY_COST_LIMIT", "50.0")
+        self.cost_tracker.monthly_limit = self._parse_float_env("MONTHLY_COST_LIMIT", "500.0")
+        self.cost_tracker.single_video_limit = self._parse_float_env("SINGLE_VIDEO_COST_LIMIT", "5.0")
+        self.cost_tracker.warning_threshold = self._parse_float_env("COST_WARNING_THRESHOLD", "0.8")
         
         # 日志配置
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
@@ -116,16 +132,16 @@ class CloudSettings:
         
         # 缓存配置
         self.enable_cache = os.getenv("ENABLE_CACHE", "true").lower() == "true"
-        self.cache_ttl = int(os.getenv("CACHE_TTL", "3600"))
+        self.cache_ttl = self._parse_int_env("CACHE_TTL", "3600")
         
         # 安全配置
-        self.api_rate_limit = int(os.getenv("API_RATE_LIMIT", "100"))
+        self.api_rate_limit = self._parse_int_env("API_RATE_LIMIT", "100")
         self.cors_origins = self._parse_cors_origins()
         
         # 监控配置
         self.enable_metrics = os.getenv("ENABLE_METRICS", "true").lower() == "true"
-        self.metrics_port = int(os.getenv("METRICS_PORT", "9090"))
-        self.health_check_interval = int(os.getenv("HEALTH_CHECK_INTERVAL", "30"))
+        self.metrics_port = self._parse_int_env("METRICS_PORT", "9090")
+        self.health_check_interval = self._parse_int_env("HEALTH_CHECK_INTERVAL", "30")
         
         # 调试配置
         self.debug = os.getenv("DEBUG", "false").lower() == "true"
@@ -143,7 +159,7 @@ class CloudSettings:
         # 添加其他缺失的配置
         self.SUPPORTED_VIDEO_FORMATS = ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm']
         self.MAX_FILE_SIZE = self.max_file_size * 1024 * 1024  # 转换为字节
-        self.TEMP_FILE_RETENTION = int(os.getenv("TEMP_FILE_RETENTION", "24"))
+        self.TEMP_FILE_RETENTION = self._parse_int_env("TEMP_FILE_RETENTION", "24")
         self.CORS_ORIGINS = self.cors_origins
         self.API_HOST = self.api_host
         self.API_PORT = self.api_port

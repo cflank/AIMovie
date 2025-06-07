@@ -422,3 +422,139 @@ class CloudVideoAnalysisAgent:
         except Exception as e:
             logger.error(f"生成视频摘要失败: {e}")
             return "视频摘要生成失败"
+    
+    async def analyze_video_guided(
+        self,
+        video_path: str,
+        narration_segments: List[Dict[str, Any]],
+        analysis_mode: str = "narration_guided",
+        progress_callback: Optional[Callable[[float, str], None]] = None
+    ) -> Dict[str, Any]:
+        """基于解说词指导的视频分析"""
+        try:
+            if progress_callback:
+                progress_callback(0.1, "开始基于解说词的视频分析...")
+            
+            # 根据解说词确定关键时间点
+            key_timestamps = []
+            for segment in narration_segments:
+                start_time = segment.get("start_time", 0)
+                end_time = segment.get("end_time", start_time + 5)
+                mid_time = (start_time + end_time) / 2
+                key_timestamps.append({
+                    "timestamp": mid_time,
+                    "narration": segment.get("text", ""),
+                    "importance": self._calculate_importance(segment.get("text", ""))
+                })
+            
+            if progress_callback:
+                progress_callback(0.3, "提取关键帧...")
+            
+            # 提取关键帧
+            frames_dir = settings.TEMP_DIR / f"guided_frames_{int(time.time())}"
+            frames_dir.mkdir(exist_ok=True)
+            
+            key_frames = []
+            cap = cv2.VideoCapture(video_path)
+            
+            for i, key_point in enumerate(key_timestamps):
+                timestamp = key_point["timestamp"]
+                frame_path = frames_dir / f"frame_{i:04d}.jpg"
+                
+                # 提取指定时间点的帧
+                cap.set(cv2.CAP_PROP_POS_MSEC, timestamp * 1000)
+                ret, frame = cap.read()
+                if ret:
+                    cv2.imwrite(str(frame_path), frame)
+                    key_frames.append({
+                        "timestamp": timestamp,
+                        "frame_path": str(frame_path),
+                        "narration": key_point["narration"],
+                        "importance": key_point["importance"]
+                    })
+            
+            cap.release()
+            
+            if progress_callback:
+                progress_callback(0.6, "分析关键帧内容...")
+            
+            # 分析关键帧
+            analyzed_frames = []
+            for i, frame_info in enumerate(key_frames):
+                if progress_callback:
+                    progress = 0.6 + (i / len(key_frames)) * 0.3
+                    progress_callback(progress, f"分析第{i+1}帧...")
+                
+                frame_analysis = await self._analyze_single_frame(
+                    frame_info["frame_path"],
+                    frame_info["timestamp"]
+                )
+                frame_analysis.update({
+                    "narration": frame_info["narration"],
+                    "importance": frame_info["importance"]
+                })
+                analyzed_frames.append(frame_analysis)
+                
+                # 避免API调用过于频繁
+                await asyncio.sleep(0.5)
+            
+            if progress_callback:
+                progress_callback(0.9, "生成视频重点片段...")
+            
+            # 生成重点片段
+            highlights = self._generate_highlights(analyzed_frames, narration_segments)
+            
+            if progress_callback:
+                progress_callback(1.0, "基于解说词的视频分析完成")
+            
+            return {
+                "analysis_mode": analysis_mode,
+                "key_frames": analyzed_frames,
+                "highlights": highlights,
+                "total_segments": len(narration_segments),
+                "processing_time": time.time()
+            }
+            
+        except Exception as e:
+            logger.error(f"基于解说词的视频分析失败: {e}")
+            raise
+    
+    def _calculate_importance(self, text: str) -> float:
+        """计算文本重要性"""
+        # 简单的重要性计算，基于关键词
+        important_keywords = [
+            "重要", "关键", "核心", "主要", "突出", "显著", "明显",
+            "特别", "尤其", "值得注意", "需要", "必须", "应该"
+        ]
+        
+        importance = 0.5  # 基础重要性
+        for keyword in important_keywords:
+            if keyword in text:
+                importance += 0.1
+        
+        # 根据文本长度调整
+        if len(text) > 50:
+            importance += 0.1
+        
+        return min(importance, 1.0)
+    
+    def _generate_highlights(self, analyzed_frames: List[Dict[str, Any]], narration_segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """生成视频重点片段"""
+        highlights = []
+        
+        # 根据重要性排序
+        sorted_frames = sorted(analyzed_frames, key=lambda x: x.get("importance", 0), reverse=True)
+        
+        # 选择前几个重要片段
+        for i, frame in enumerate(sorted_frames[:5]):  # 最多5个重点片段
+            highlight = {
+                "start": max(0, frame["timestamp"] - 2),  # 片段开始时间
+                "end": frame["timestamp"] + 3,  # 片段结束时间
+                "importance": frame["importance"],
+                "description": frame.get("scene_description", ""),
+                "narration": frame.get("narration", ""),
+                "rank": i + 1
+            }
+            highlights.append(highlight)
+        
+        return highlights

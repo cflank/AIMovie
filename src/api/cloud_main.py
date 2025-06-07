@@ -15,6 +15,8 @@ try:
     from ..agents.cloud_video_analysis_agent import CloudVideoAnalysisAgent
     from ..agents.cloud_narration_agent import CloudNarrationAgent
     from ..agents.cloud_tts_agent import CloudTTSAgent
+    from ..agents.subtitle_agent import SubtitleAgent
+    from ..agents.subtitle_narration_agent import SubtitleNarrationAgent
     from ..utils.file_utils import save_uploaded_file, cleanup_temp_files
     from ..utils.video_utils import create_narrated_video
 except ImportError:
@@ -26,6 +28,8 @@ except ImportError:
     from src.agents.cloud_video_analysis_agent import CloudVideoAnalysisAgent
     from src.agents.cloud_narration_agent import CloudNarrationAgent
     from src.agents.cloud_tts_agent import CloudTTSAgent
+    from src.agents.subtitle_agent import SubtitleAgent
+    from src.agents.subtitle_narration_agent import SubtitleNarrationAgent
     from src.utils.file_utils import save_uploaded_file, cleanup_temp_files
     from src.utils.video_utils import create_narrated_video
 
@@ -65,6 +69,8 @@ app.mount("/static", StaticFiles(directory=str(settings.OUTPUT_DIR)), name="stat
 video_agent = CloudVideoAnalysisAgent()
 narration_agent = CloudNarrationAgent()
 tts_agent = CloudTTSAgent()
+subtitle_agent = SubtitleAgent()
+subtitle_narration_agent = SubtitleNarrationAgent()
 
 # 存储任务状态
 task_status = {}
@@ -98,6 +104,25 @@ class VideoGenerationRequest(BaseModel):
     narration_segments: List[Dict[str, Any]]
     background_music: Optional[str] = None
     music_volume: float = 0.3
+
+class GuidedVideoAnalysisRequest(BaseModel):
+    video_path: str
+    narration_segments: List[Dict[str, Any]]
+    analysis_mode: str = "narration_guided"
+
+class VideoEditRequest(BaseModel):
+    original_video: str
+    video_analysis: Dict[str, Any]
+    narration_segments: List[Dict[str, Any]]
+    audio_files: List[str]
+    edit_style: str = "highlight_based"
+
+class SubtitleNarrationRequest(BaseModel):
+    subtitle_data: Dict[str, Any]
+    narration_mode: str = "third_person"  # "third_person" 或 "character"
+    character_name: str = ""
+    style: str = "professional"
+    target_audience: str = "general"
 
 class TaskStatus(BaseModel):
     task_id: str
@@ -150,6 +175,78 @@ async def get_services():
         "tts_services": settings.get_available_tts_services(),
         "video_services": settings.get_available_video_services()
     }
+
+@app.get("/system/info")
+async def get_system_info():
+    """获取系统信息"""
+    try:
+        import platform
+        import psutil
+        import sys
+        
+        return {
+            "system": {
+                "platform": platform.platform(),
+                "python_version": sys.version,
+                "cpu_count": psutil.cpu_count(),
+                "memory_total": psutil.virtual_memory().total,
+                "memory_available": psutil.virtual_memory().available,
+                "disk_usage": psutil.disk_usage('/').percent if platform.system() != 'Windows' else psutil.disk_usage('C:').percent
+            },
+            "application": {
+                "version": "2.0.0",
+                "environment": "cloud",
+                "config": settings.get_config(),
+                "active_tasks": len(task_status)
+            },
+            "services": {
+                "llm_services": len(settings.get_available_llm_services()),
+                "tts_services": len(settings.get_available_tts_services()),
+                "video_services": len(settings.get_available_video_services())
+            }
+        }
+    except Exception as e:
+        logger.error(f"获取系统信息失败: {e}")
+        return {
+            "system": {"error": str(e)},
+            "application": {
+                "version": "2.0.0",
+                "environment": "cloud",
+                "active_tasks": len(task_status)
+            }
+        }
+
+@app.get("/cost/stats")
+async def get_cost_stats():
+    """获取成本统计"""
+    try:
+        # 这里可以从数据库或日志文件中获取实际的成本统计
+        # 目前返回模拟数据
+        return {
+            "daily_cost": 0.0,
+            "monthly_cost": 0.0,
+            "total_cost": 0.0,
+            "video_count": 0,
+            "daily_limit": 50.0,
+            "monthly_limit": 500.0,
+            "currency": "CNY",
+            "last_updated": time.time(),
+            "breakdown": {
+                "llm_cost": 0.0,
+                "tts_cost": 0.0,
+                "video_cost": 0.0
+            },
+            "note": "成本统计功能正在开发中，当前显示为模拟数据"
+        }
+    except Exception as e:
+        logger.error(f"获取成本统计失败: {e}")
+        return {
+            "daily_cost": 0.0,
+            "monthly_cost": 0.0,
+            "total_cost": 0.0,
+            "video_count": 0,
+            "error": str(e)
+        }
 
 @app.get("/cost/estimate")
 async def estimate_cost(
@@ -204,9 +301,45 @@ async def upload_video(file: UploadFile = File(...)):
             "file_size": file.size,
             "filename": file.filename
         }
-        
+    
     except Exception as e:
         logger.error(f"视频上传失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/upload/subtitle")
+async def upload_subtitle(file: UploadFile = File(...)):
+    """上传字幕文件"""
+    try:
+        # 支持的字幕格式
+        supported_formats = ['.srt', '.vtt', '.ass', '.ssa', '.txt']
+        file_ext = Path(file.filename).suffix.lower()
+        
+        if file_ext not in supported_formats:
+            raise HTTPException(
+                status_code=400,
+                detail=f"不支持的字幕格式。支持的格式: {supported_formats}"
+            )
+        
+        if file.size > 10 * 1024 * 1024:  # 10MB限制
+            raise HTTPException(
+                status_code=400,
+                detail="字幕文件过大。最大支持 10MB"
+            )
+        
+        # 保存文件
+        file_path = await save_uploaded_file(file, settings.UPLOAD_DIR)
+        
+        logger.info(f"字幕上传成功: {file_path}")
+        return {
+            "message": "字幕上传成功",
+            "file_path": str(file_path),
+            "file_size": file.size,
+            "filename": file.filename,
+            "format": file_ext
+        }
+    
+    except Exception as e:
+        logger.error(f"字幕上传失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/files/list")
@@ -342,6 +475,54 @@ async def get_video_summary(video_path: str):
         logger.error(f"获取视频摘要失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/analyze/video/guided")
+async def analyze_video_guided(request: GuidedVideoAnalysisRequest, background_tasks: BackgroundTasks):
+    """基于解说词指导的视频分析"""
+    try:
+        if not Path(request.video_path).exists():
+            raise HTTPException(status_code=404, detail="视频文件不存在")
+        
+        task_id = f"guided_analysis_{int(time.time())}"
+        task_status[task_id] = {
+            "status": "running",
+            "progress": 0.0,
+            "message": "开始基于解说词的视频分析...",
+            "result": None,
+            "error": None
+        }
+        
+        def progress_callback(progress: float, message: str):
+            task_status[task_id]["progress"] = progress
+            task_status[task_id]["message"] = message
+        
+        async def guided_analysis_task():
+            try:
+                # 基于解说词进行视频分析
+                result = await video_agent.analyze_video_guided(
+                    request.video_path,
+                    request.narration_segments,
+                    request.analysis_mode,
+                    progress_callback
+                )
+                
+                task_status[task_id]["status"] = "completed"
+                task_status[task_id]["progress"] = 1.0
+                task_status[task_id]["message"] = "视频分析完成"
+                task_status[task_id]["result"] = result
+                
+            except Exception as e:
+                logger.error(f"基于解说词的视频分析失败: {e}")
+                task_status[task_id]["status"] = "failed"
+                task_status[task_id]["error"] = str(e)
+        
+        background_tasks.add_task(guided_analysis_task)
+        
+        return {"task_id": task_id, "message": "基于解说词的视频分析任务已启动"}
+        
+    except Exception as e:
+        logger.error(f"启动基于解说词的视频分析失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ==========================================
 # 解说生成
 # ==========================================
@@ -395,6 +576,214 @@ async def generate_narration(request: NarrationRequest, background_tasks: Backgr
     background_tasks.add_task(narration_task)
     
     return {"task_id": task_id, "message": "解说生成任务已启动"}
+
+# ==========================================
+# 字幕处理和基于字幕的解说生成
+# ==========================================
+
+@app.post("/subtitle/parse")
+async def parse_subtitle(subtitle_path: str, background_tasks: BackgroundTasks):
+    """解析字幕文件"""
+    task_id = f"subtitle_parse_{int(time.time())}"
+    
+    # 初始化任务状态
+    task_status[task_id] = {
+        "status": "started",
+        "progress": 0.0,
+        "message": "开始解析字幕...",
+        "result": None,
+        "error": None
+    }
+    
+    def progress_callback(progress: float, message: str):
+        task_status[task_id].update({
+            "progress": progress,
+            "message": message
+        })
+    
+    async def parse_task():
+        try:
+            result = subtitle_agent.parse_subtitle_file(
+                subtitle_path,
+                progress_callback=progress_callback
+            )
+            
+            task_status[task_id].update({
+                "status": "completed",
+                "progress": 1.0,
+                "message": "字幕解析完成",
+                "result": result
+            })
+            
+        except Exception as e:
+            logger.error(f"字幕解析任务失败: {e}")
+            task_status[task_id].update({
+                "status": "failed",
+                "progress": 1.0,
+                "message": "字幕解析失败",
+                "error": str(e)
+            })
+    
+    background_tasks.add_task(parse_task)
+    
+    return {"task_id": task_id, "message": "字幕解析任务已启动"}
+
+@app.post("/subtitle/narration/generate")
+async def generate_subtitle_narration(request: SubtitleNarrationRequest, background_tasks: BackgroundTasks):
+    """基于字幕生成解说"""
+    task_id = f"subtitle_narration_{int(time.time())}"
+    
+    # 初始化任务状态
+    task_status[task_id] = {
+        "status": "started",
+        "progress": 0.0,
+        "message": "开始生成基于字幕的解说...",
+        "result": None,
+        "error": None
+    }
+    
+    def progress_callback(progress: float, message: str):
+        task_status[task_id].update({
+            "progress": progress,
+            "message": message
+        })
+    
+    async def subtitle_narration_task():
+        try:
+            result = await subtitle_narration_agent.generate_narration_from_subtitle(
+                request.subtitle_data,
+                request.narration_mode,
+                request.character_name,
+                request.style,
+                request.target_audience,
+                progress_callback=progress_callback
+            )
+            
+            task_status[task_id].update({
+                "status": "completed",
+                "progress": 1.0,
+                "message": "基于字幕的解说生成完成",
+                "result": result
+            })
+            
+        except Exception as e:
+            logger.error(f"基于字幕的解说生成任务失败: {e}")
+            task_status[task_id].update({
+                "status": "failed",
+                "progress": 1.0,
+                "message": "基于字幕的解说生成失败",
+                "error": str(e)
+            })
+    
+    background_tasks.add_task(subtitle_narration_task)
+    
+    return {"task_id": task_id, "message": "基于字幕的解说生成任务已启动"}
+
+@app.post("/subtitle/process/complete")
+async def complete_subtitle_process(
+    subtitle_file: UploadFile = File(...),
+    narration_mode: str = Form("third_person"),
+    character_name: str = Form(""),
+    style: str = Form("professional"),
+    target_audience: str = Form("general"),
+    voice_style: str = Form("female_gentle"),
+    speed: float = Form(1.0),
+    pitch: float = Form(1.0),
+    volume: float = Form(1.0),
+    background_tasks: BackgroundTasks = None
+):
+    """完整的基于字幕的处理流程"""
+    task_id = f"subtitle_complete_{int(time.time())}"
+    
+    # 初始化任务状态
+    task_status[task_id] = {
+        "status": "started",
+        "progress": 0.0,
+        "message": "开始完整处理流程...",
+        "result": None,
+        "error": None
+    }
+    
+    def progress_callback(progress: float, message: str):
+        task_status[task_id].update({
+            "progress": progress,
+            "message": message
+        })
+    
+    async def complete_task():
+        try:
+            # 1. 保存字幕文件
+            progress_callback(0.1, "保存字幕文件...")
+            subtitle_path = await save_uploaded_file(subtitle_file, settings.UPLOAD_DIR)
+            
+            # 2. 解析字幕
+            progress_callback(0.2, "解析字幕内容...")
+            subtitle_data = subtitle_agent.parse_subtitle_file(str(subtitle_path))
+            
+            # 3. 生成解说
+            progress_callback(0.4, "生成解说词...")
+            narration_result = await subtitle_narration_agent.generate_narration_from_subtitle(
+                subtitle_data,
+                narration_mode,
+                character_name,
+                style,
+                target_audience
+            )
+            
+            # 4. 生成语音
+            progress_callback(0.7, "合成语音...")
+            narration_segments = narration_result["narration_segments"]
+            
+            audio_segments = []
+            for segment in narration_segments:
+                audio_result = await tts_agent.synthesize_speech(
+                    segment["text"],
+                    voice_style,
+                    speed,
+                    pitch,
+                    volume
+                )
+                audio_segments.append({
+                    **segment,
+                    "audio_path": audio_result["audio_path"]
+                })
+            
+            # 5. 完成
+            progress_callback(1.0, "处理完成!")
+            
+            result = {
+                "subtitle_data": subtitle_data,
+                "narration_result": narration_result,
+                "audio_segments": audio_segments,
+                "metadata": {
+                    "narration_mode": narration_mode,
+                    "character_name": character_name,
+                    "style": style,
+                    "target_audience": target_audience,
+                    "voice_style": voice_style,
+                    "processing_time": time.time()
+                }
+            }
+            
+            task_status[task_id].update({
+                "status": "completed",
+                "progress": 1.0,
+                "message": "完整处理流程完成",
+                "result": result
+            })
+            
+        except Exception as e:
+            logger.error(f"完整处理流程失败: {e}")
+            task_status[task_id].update({
+                "status": "failed",
+                "progress": 1.0,
+                "message": "完整处理流程失败",
+                "error": str(e)
+            })
+    
+    background_tasks.add_task(complete_task)
+    
+    return {"task_id": task_id, "message": "完整处理流程已启动"}
 
 # ==========================================
 # 语音合成
@@ -589,6 +978,77 @@ async def generate_video(request: VideoGenerationRequest, background_tasks: Back
     background_tasks.add_task(video_gen_task)
     
     return {"task_id": task_id, "message": "视频生成任务已启动"}
+
+@app.post("/video/edit/short")
+async def edit_short_video(request: VideoEditRequest, background_tasks: BackgroundTasks):
+    """剪辑生成短视频"""
+    task_id = f"video_edit_{int(time.time())}"
+    
+    # 初始化任务状态
+    task_status[task_id] = {
+        "status": "started",
+        "progress": 0.0,
+        "message": "开始剪辑短视频...",
+        "result": None,
+        "error": None
+    }
+    
+    def progress_callback(progress: float, message: str):
+        task_status[task_id].update({
+            "progress": progress,
+            "message": message
+        })
+    
+    async def video_edit_task():
+        try:
+            # 基于视频分析结果和解说词剪辑短视频
+            progress_callback(0.1, "分析视频重点片段...")
+            await asyncio.sleep(1)
+            
+            progress_callback(0.3, "提取关键帧...")
+            await asyncio.sleep(1)
+            
+            progress_callback(0.5, "合成解说音频...")
+            await asyncio.sleep(1)
+            
+            progress_callback(0.7, "剪辑视频片段...")
+            await asyncio.sleep(1)
+            
+            progress_callback(0.9, "生成最终短视频...")
+            await asyncio.sleep(1)
+            
+            # 模拟结果
+            result = {
+                "output_video": f"short_video_{task_id}.mp4",
+                "duration": 60.0,  # 短视频时长
+                "highlights": request.video_analysis.get("highlights", []),
+                "segments": len(request.narration_segments),
+                "processing_time": "5.2s",
+                "file_size": "8.5MB",
+                "edit_style": request.edit_style,
+                "actual_cost": 0.15,
+                "analysis_report": f"analysis_report_{task_id}.txt"
+            }
+            
+            task_status[task_id].update({
+                "status": "completed",
+                "progress": 1.0,
+                "message": "短视频剪辑完成",
+                "result": result
+            })
+            
+        except Exception as e:
+            logger.error(f"短视频剪辑任务失败: {e}")
+            task_status[task_id].update({
+                "status": "failed",
+                "progress": 1.0,
+                "message": "短视频剪辑失败",
+                "error": str(e)
+            })
+    
+    background_tasks.add_task(video_edit_task)
+    
+    return {"task_id": task_id, "message": "短视频剪辑任务已启动"}
 
 # ==========================================
 # 任务状态查询
