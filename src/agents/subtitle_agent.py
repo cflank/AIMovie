@@ -116,24 +116,49 @@ class SubtitleAgent:
         """解析SRT格式字幕"""
         segments = []
         
-        # SRT格式正则表达式
-        pattern = r'(\d+)\s*\n(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n(.*?)(?=\n\d+\s*\n|\n*$)'
-        matches = re.findall(pattern, content, re.DOTALL)
+        # 标准化换行符
+        content = content.replace('\r\n', '\n').replace('\r', '\n')
         
-        for match in matches:
-            index = int(match[0])
-            start_time = self._time_to_seconds(match[1])
-            end_time = self._time_to_seconds(match[2])
-            text = match[3].strip().replace('\n', ' ')
+        # 分割成字幕块
+        blocks = re.split(r'\n\s*\n', content.strip())
+        
+        for block in blocks:
+            if not block.strip():
+                continue
+                
+            lines = block.strip().split('\n')
+            if len(lines) < 3:
+                continue
             
-            if text:  # 忽略空字幕
-                segments.append({
-                    "index": index,
-                    "start_time": start_time,
-                    "end_time": end_time,
-                    "text": text,
-                    "duration": end_time - start_time
-                })
+            try:
+                # 第一行：序号
+                index = int(lines[0].strip())
+                
+                # 第二行：时间戳
+                time_line = lines[1].strip()
+                time_match = re.match(r'(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})', time_line)
+                if not time_match:
+                    continue
+                
+                start_time = self._time_to_seconds(time_match.group(1))
+                end_time = self._time_to_seconds(time_match.group(2))
+                
+                # 第三行及以后：字幕文本
+                text = '\n'.join(lines[2:]).strip()
+                
+                if text:  # 忽略空字幕
+                    segments.append({
+                        "index": index,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "text": text,
+                        "duration": end_time - start_time
+                    })
+                    
+            except (ValueError, IndexError) as e:
+                logger.warning(f"跳过无效的字幕块: {e}")
+                continue
+
         
         return segments
     
@@ -325,20 +350,59 @@ class SubtitleAgent:
         for segment in segments:
             text = segment["text"]
             
-            # 查找对话格式：角色名: 对话内容
-            if ':' in text:
-                potential_character = text.split(':')[0].strip()
-                # 简单验证是否为角色名（长度合理，不包含特殊字符）
-                if len(potential_character) <= 10 and re.match(r'^[a-zA-Z\u4e00-\u9fff\s]+$', potential_character):
+            # 查找对话格式：角色名: 对话内容 或 角色名：对话内容
+            if ':' in text or '：' in text:
+                # 处理中英文冒号
+                separator = ':' if ':' in text else '：'
+                potential_character = text.split(separator)[0].strip()
+                
+                # 验证是否为角色名
+                # 1. 长度合理（1-10个字符）
+                # 2. 只包含中文、英文、数字、空格
+                # 3. 不是纯数字
+                # 4. 不包含常见的非角色词汇
+                if (1 <= len(potential_character) <= 10 and 
+                    re.match(r'^[a-zA-Z\u4e00-\u9fff0-9\s]+$', potential_character) and
+                    not potential_character.isdigit() and
+                    not any(word in potential_character for word in ['时间', '地点', '场景', '背景', '音乐', '效果'])):
                     characters.add(potential_character)
             
             # 查找括号中的角色标识
             bracket_matches = re.findall(r'[\(（]([^)）]+)[\)）]', text)
             for match in bracket_matches:
-                if len(match) <= 8 and not any(char.isdigit() for char in match):
-                    characters.add(match.strip())
+                match = match.strip()
+                if (1 <= len(match) <= 8 and 
+                    not any(char.isdigit() for char in match) and
+                    not any(word in match for word in ['旁白', '画外音', '背景', '音乐', '效果'])):
+                    characters.add(match)
+            
+            # 查找常见的角色提及模式
+            # 例如："小明走进咖啡店" - 提取"小明"
+            name_patterns = [
+                r'^([a-zA-Z\u4e00-\u9fff]{2,4})(?:走|来|去|说|问|答|看|听|想|做|拿|给)',
+                r'([a-zA-Z\u4e00-\u9fff]{2,4})(?:对|向|跟|和)([a-zA-Z\u4e00-\u9fff]{2,4})(?:说|问|答)',
+                r'([a-zA-Z\u4e00-\u9fff]{2,4})(?:告诉|询问|回答)([a-zA-Z\u4e00-\u9fff]{2,4})'
+            ]
+            
+            for pattern in name_patterns:
+                matches = re.findall(pattern, text)
+                for match in matches:
+                    if isinstance(match, tuple):
+                        for name in match:
+                            if name and len(name) >= 2:
+                                characters.add(name)
+                    else:
+                        if match and len(match) >= 2:
+                            characters.add(match)
         
-        return list(characters)
+        # 过滤掉可能的误识别
+        filtered_characters = []
+        for char in characters:
+            # 排除常见的非角色词汇
+            if not any(word in char for word in ['咖啡店', '书店', '学校', '公司', '家里', '房间', '客厅']):
+                filtered_characters.append(char)
+        
+        return filtered_characters
     
     def _extract_themes(self, text: str) -> List[str]:
         """提取主题"""

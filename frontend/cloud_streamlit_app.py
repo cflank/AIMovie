@@ -406,7 +406,7 @@ def process_video_subtitle_complete(uploaded_video, uploaded_subtitle, narration
     try:
         # 1. 上传视频文件
         status_text.text("📤 上传视频文件...")
-        video_files = {"file": uploaded_video.getvalue()}
+        video_files = {"file": (uploaded_video.name, uploaded_video.getvalue(), uploaded_video.type)}
         response = requests.post(f"{API_BASE_URL}/upload/video", files=video_files)
         
         if response.status_code != 200:
@@ -419,7 +419,7 @@ def process_video_subtitle_complete(uploaded_video, uploaded_subtitle, narration
         
         # 2. 上传字幕文件
         status_text.text("📤 上传字幕文件...")
-        subtitle_files = {"file": uploaded_subtitle.getvalue()}
+        subtitle_files = {"file": (uploaded_subtitle.name, uploaded_subtitle.getvalue(), uploaded_subtitle.type)}
         response = requests.post(f"{API_BASE_URL}/upload/subtitle", files=subtitle_files)
         
         if response.status_code != 200:
@@ -628,7 +628,7 @@ def render_upload_files_step():
         with col1:
             if st.button("上传视频文件", use_container_width=True):
                 with st.spinner("上传视频中..."):
-                    files = {"file": uploaded_video.getvalue()}
+                    files = {"file": (uploaded_video.name, uploaded_video.getvalue(), uploaded_video.type)}
                     response = requests.post(f"{API_BASE_URL}/upload/video", files=files)
                     
                     if response.status_code == 200:
@@ -641,7 +641,7 @@ def render_upload_files_step():
         with col2:
             if st.button("上传字幕文件", use_container_width=True):
                 with st.spinner("上传字幕中..."):
-                    files = {"file": uploaded_subtitle.getvalue()}
+                    files = {"file": (uploaded_subtitle.name, uploaded_subtitle.getvalue(), uploaded_subtitle.type)}
                     response = requests.post(f"{API_BASE_URL}/upload/subtitle", files=files)
                     
                     if response.status_code == 200:
@@ -711,21 +711,26 @@ def render_subtitle_analysis_step():
                             
                             with col1:
                                 st.write("**字幕统计**")
-                                content = result.get("content", {})
-                                st.write(f"• 总段数: {len(content.get('subtitle_segments', []))}")
-                                st.write(f"• 总时长: {content.get('metadata', {}).get('duration', 0):.1f}秒")
-                                st.write(f"• 字符数: {content.get('metadata', {}).get('total_characters', 0)}")
+                                # 修正数据结构访问
+                                subtitle_segments = result.get("subtitle_segments", [])
+                                metadata = result.get("metadata", {})
+                                st.write(f"• 总段数: {metadata.get('total_segments', len(subtitle_segments))}")
+                                st.write(f"• 总时长: {metadata.get('total_duration', 0):.1f}秒")
+                                st.write(f"• 字符数: {metadata.get('total_characters', 0)}")
                             
                             with col2:
                                 st.write("**内容分析**")
                                 analysis = result.get("analysis", {})
-                                st.write(f"• 主要角色: {', '.join(analysis.get('characters', [])[:3])}")
-                                st.write(f"• 主题: {', '.join(analysis.get('themes', [])[:3])}")
-                                st.write(f"• 情感倾向: {analysis.get('sentiment', '未知')}")
+                                characters = analysis.get('characters', [])
+                                themes = analysis.get('themes', [])
+                                emotions = analysis.get('emotions', [])
+                                st.write(f"• 主要角色: {', '.join(characters[:3]) if characters else '无'}")
+                                st.write(f"• 主题: {', '.join(themes[:3]) if themes else '学习, 成长'}")
+                                st.write(f"• 情感倾向: {', '.join(emotions[:3]) if emotions else '未知'}")
                             
                             # 显示字幕预览
                             with st.expander("📝 字幕内容预览"):
-                                segments = content.get("subtitle_segments", [])
+                                segments = result.get("subtitle_segments", [])
                                 for i, segment in enumerate(segments[:10]):
                                     st.write(f"**{segment.get('start_time', 0):.1f}s - {segment.get('end_time', 0):.1f}s**")
                                     st.write(segment.get("text", ""))
@@ -834,11 +839,16 @@ def render_subtitle_narration_step():
         can_generate = False
     
     if st.button("生成解说", type="primary", disabled=not can_generate):
+        # 保存用户选择的参数，用于重新生成
+        st.session_state.last_narration_mode = narration_mode
+        st.session_state.last_character_name = character_name
+        st.session_state.last_narration_style = style
+        st.session_state.last_target_audience = target_audience
+        
         with st.spinner("生成解说中..."):
             data = {
-                "subtitle_content": st.session_state.subtitle_analysis.get("content", {}),
-                "subtitle_analysis": st.session_state.subtitle_analysis.get("analysis", {}),
-                "mode": narration_mode,
+                "subtitle_data": st.session_state.subtitle_analysis,
+                "narration_mode": narration_mode,
                 "character_name": character_name if narration_mode == "character" else "",
                 "style": style,
                 "target_audience": target_audience
@@ -846,15 +856,167 @@ def render_subtitle_narration_step():
             response = requests.post(f"{API_BASE_URL}/subtitle/narration/generate", json=data)
             
             if response.status_code == 200:
-                result = response.json()
-                st.success("解说生成完成!")
-                st.session_state.narration_result = result
+                task_result = response.json()
+                task_id = task_result["task_id"]
                 
-                # 显示解说内容
-                for i, segment in enumerate(result["segments"]):
-                    st.write(f"**段落 {i+1}** ({segment['start_time']:.1f}s - {segment['end_time']:.1f}s)")
-                    st.write(segment["text"])
-                    st.write("---")
+                # 轮询任务状态
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                while True:
+                    time.sleep(2)
+                    status_response = requests.get(f"{API_BASE_URL}/task/{task_id}")
+                    
+                    if status_response.status_code == 200:
+                        task_status = status_response.json()
+                        progress = task_status.get("progress", 0)
+                        message = task_status.get("message", "生成中...")
+                        status = task_status.get("status", "running")
+                        
+                        progress_bar.progress(progress)
+                        status_text.text(f"🎭 {message}")
+                        
+                        if status == "completed":
+                            st.success("解说生成完成!")
+                            result = task_status.get("result", {})
+                            st.session_state.narration_result = result
+                            
+                            # 显示和编辑解说内容
+                            narration_segments = result.get("narration_segments", [])
+                            if narration_segments:
+                                st.subheader("📝 解说内容编辑")
+                                st.info("💡 您可以直接编辑下面的解说内容，修改后点击'保存修改'按钮")
+                                
+                                # 创建编辑表单
+                                with st.form("edit_narration_form"):
+                                    edited_segments = []
+                                    
+                                    for i, segment in enumerate(narration_segments):
+                                        st.write(f"**段落 {i+1}** ({segment.get('start_time', 0):.1f}s - {segment.get('end_time', 0):.1f}s)")
+                                        
+                                        # 可编辑的文本区域
+                                        edited_text = st.text_area(
+                                            f"解说内容 {i+1}",
+                                            value=segment.get("text", ""),
+                                            height=80,
+                                            key=f"narration_text_{i}",
+                                            help="您可以修改这段解说的内容"
+                                        )
+                                        
+                                        # 保存编辑后的段落
+                                        edited_segment = segment.copy()
+                                        edited_segment["text"] = edited_text
+                                        edited_segments.append(edited_segment)
+                                        
+                                        st.write("---")
+                                    
+                                    # 保存按钮
+                                    col1, col2, col3 = st.columns([1, 1, 1])
+                                    with col2:
+                                        if st.form_submit_button("💾 保存修改", type="primary"):
+                                            # 更新session state中的解说结果
+                                            updated_result = result.copy()
+                                            updated_result["narration_segments"] = edited_segments
+                                            st.session_state.narration_result = updated_result
+                                            st.success("✅ 解说内容已保存！")
+                                            st.rerun()
+                                
+                                # 显示预览和操作按钮
+                                with st.expander("👀 解说预览", expanded=False):
+                                    current_segments = st.session_state.narration_result.get("narration_segments", [])
+                                    for i, segment in enumerate(current_segments):
+                                        st.write(f"**段落 {i+1}** ({segment.get('start_time', 0):.1f}s - {segment.get('end_time', 0):.1f}s)")
+                                        st.write(f"📝 {segment.get('text', '')}")
+                                        st.write("---")
+                                
+                                # 操作按钮
+                                st.subheader("🔄 解说操作")
+                                col1, col2, col3 = st.columns(3)
+                                
+                                with col1:
+                                    if st.button("🔄 重新生成解说", help="使用相同参数重新生成解说内容"):
+                                        # 重新生成解说
+                                        with st.spinner("正在重新生成解说..."):
+                                            narration_data = {
+                                                "subtitle_data": st.session_state.subtitle_analysis,
+                                                "narration_mode": st.session_state.get('last_narration_mode', 'third_person'),
+                                                "character_name": st.session_state.get('last_character_name', ''),
+                                                "style": st.session_state.get('last_narration_style', 'professional'),
+                                                "target_audience": st.session_state.get('last_target_audience', 'general')
+                                            }
+                                            
+                                            response = requests.post(f"{API_BASE_URL}/subtitle/narration/generate", json=narration_data)
+                                            
+                                            if response.status_code == 200:
+                                                task_result = response.json()
+                                                task_id = task_result["task_id"]
+                                                
+                                                # 等待任务完成
+                                                while True:
+                                                    time.sleep(2)
+                                                    task_response = requests.get(f"{API_BASE_URL}/task/{task_id}")
+                                                    
+                                                    if task_response.status_code == 200:
+                                                        task_status = task_response.json()
+                                                        status = task_status.get("status", "running")
+                                                        
+                                                        if status == "completed":
+                                                            new_result = task_status.get("result", {})
+                                                            st.session_state.narration_result = new_result
+                                                            st.success("✅ 解说重新生成完成！")
+                                                            st.rerun()
+                                                            break
+                                                        elif status == "failed":
+                                                            st.error(f"解说重新生成失败: {task_status.get('error', '未知错误')}")
+                                                            break
+                                                    else:
+                                                        st.error("无法获取任务状态")
+                                                        break
+                                            else:
+                                                st.error(f"解说重新生成失败: {response.text}")
+                                
+                                with col2:
+                                    if st.button("📋 复制解说文本", help="复制所有解说内容到剪贴板"):
+                                        current_segments = st.session_state.narration_result.get("narration_segments", [])
+                                        full_text = "\n\n".join([
+                                            f"段落 {i+1} ({segment.get('start_time', 0):.1f}s - {segment.get('end_time', 0):.1f}s):\n{segment.get('text', '')}"
+                                            for i, segment in enumerate(current_segments)
+                                        ])
+                                        
+                                        # 使用JavaScript复制到剪贴板
+                                        st.components.v1.html(f"""
+                                        <script>
+                                        navigator.clipboard.writeText(`{full_text}`).then(function() {{
+                                            console.log('Text copied to clipboard');
+                                        }});
+                                        </script>
+                                        """, height=0)
+                                        st.success("📋 解说文本已复制到剪贴板！")
+                                
+                                with col3:
+                                    if st.button("💾 导出解说文件", help="导出解说内容为文本文件"):
+                                        current_segments = st.session_state.narration_result.get("narration_segments", [])
+                                        export_text = "\n\n".join([
+                                            f"段落 {i+1} ({segment.get('start_time', 0):.1f}s - {segment.get('end_time', 0):.1f}s):\n{segment.get('text', '')}"
+                                            for i, segment in enumerate(current_segments)
+                                        ])
+                                        
+                                        st.download_button(
+                                            label="📥 下载解说文本",
+                                            data=export_text,
+                                            file_name=f"narration_{int(time.time())}.txt",
+                                            mime="text/plain"
+                                        )
+                                        
+                            else:
+                                st.warning("未生成解说内容")
+                            break
+                        elif status == "failed":
+                            st.error(f"解说生成失败: {task_status.get('error', '未知错误')}")
+                            break
+                    else:
+                        st.error("无法获取任务状态")
+                        break
             else:
                 st.error(f"解说生成失败: {response.text}")
     
@@ -876,7 +1038,7 @@ def render_guided_video_analysis_step():
         return
     
     video_path = st.session_state.uploaded_video_path
-    narration_segments = st.session_state.narration_result.get("segments", [])
+    narration_segments = st.session_state.narration_result.get("narration_segments", [])
     
     st.write(f"分析视频: {video_path}")
     st.write(f"基于 {len(narration_segments)} 段解说进行分析")
@@ -962,7 +1124,7 @@ def render_video_editing_step():
         return
     
     video_path = st.session_state.uploaded_video_path
-    narration_segments = st.session_state.narration_result.get("segments", [])
+    narration_segments = st.session_state.narration_result.get("narration_segments", [])
     video_analysis = st.session_state.video_analysis
     
     st.write("**剪辑配置**")
@@ -976,12 +1138,18 @@ def render_video_editing_step():
             if response.status_code == 200:
                 voices = response.json().get("voices", [])
                 voice_options = {voice["name"]: voice["display_name"] for voice in voices}
+                if not voice_options:
+                    voice_options = {"female_gentle": "温柔女声"}
             else:
-                voice_options = {"default": "默认语音"}
+                voice_options = {"female_gentle": "温柔女声"}
         except:
-            voice_options = {"default": "默认语音"}
+            voice_options = {"female_gentle": "温柔女声"}
         
         selected_voice = st.selectbox("语音风格", list(voice_options.keys()), format_func=lambda x: voice_options[x])
+        
+        # 确保选择的语音不为空
+        if not selected_voice:
+            selected_voice = "female_gentle"
         speech_speed = st.slider("语速", 0.5, 2.0, 1.0, 0.1)
     
     with col2:
@@ -1000,14 +1168,27 @@ def render_video_editing_step():
     
     if st.button("开始剪辑短视频", type="primary"):
         with st.spinner("剪辑短视频中..."):
+            # 验证数据
+            if not narration_segments:
+                st.error("没有解说段落可用于语音合成")
+                return
+            
+            if not selected_voice:
+                st.error("请选择语音风格")
+                return
+            
             # 首先进行语音合成
             tts_data = {
                 "segments": narration_segments,
-                "voice_style": selected_voice,
-                "speed": speech_speed,
-                "pitch": speech_pitch,
-                "volume": speech_volume
+                "voice_style": str(selected_voice),  # 确保是字符串
+                "speed": float(speech_speed),
+                "pitch": float(speech_pitch),
+                "volume": float(speech_volume)
             }
+            
+            # 调试信息
+            st.write(f"🔍 调试信息: 语音风格={selected_voice}, 段落数={len(narration_segments)}")
+            
             tts_response = requests.post(f"{API_BASE_URL}/tts/batch", json=tts_data)
             
             if tts_response.status_code == 200:

@@ -58,7 +58,7 @@ class CloudSettings:
         self.cost_tracker = CostTracker()
         self.service_status = {}
         self._load_settings()
-        self._validate_configuration()
+        # 不在初始化时验证配置，避免在环境变量加载前输出错误信息
     
     def _parse_int_env(self, key: str, default: str) -> int:
         """解析整数环境变量，自动清理注释"""
@@ -147,6 +147,26 @@ class CloudSettings:
         self.debug = os.getenv("DEBUG", "false").lower() == "true"
         self.enable_profiling = os.getenv("ENABLE_PROFILING", "false").lower() == "true"
         self.save_intermediate_files = os.getenv("SAVE_INTERMEDIATE_FILES", "false").lower() == "true"
+        
+        # API密钥配置
+        self.QWEN_API_KEY = os.getenv("QWEN_API_KEY")
+        self.QWEN_VL_API_KEY = os.getenv("QWEN_VL_API_KEY")
+        self.QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen-plus")
+        self.BAIDU_API_KEY = os.getenv("BAIDU_API_KEY")
+        self.BAIDU_SECRET_KEY = os.getenv("BAIDU_SECRET_KEY")
+        self.ERNIE_API_KEY = os.getenv("ERNIE_API_KEY")
+        self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+        self.CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
+        
+        # 阿里云TTS配置
+        self.ALIYUN_ACCESS_KEY_ID = os.getenv("ALIYUN_ACCESS_KEY_ID")
+        self.ALIYUN_ACCESS_KEY_SECRET = os.getenv("ALIYUN_ACCESS_KEY_SECRET")
+        self.ALIYUN_TTS_REGION = os.getenv("ALIYUN_TTS_REGION", "cn-shanghai")
+        
+        # 腾讯云TTS配置
+        self.TENCENT_SECRET_ID = os.getenv("TENCENT_SECRET_ID")
+        self.TENCENT_SECRET_KEY = os.getenv("TENCENT_SECRET_KEY")
+        self.TENCENT_TTS_REGION = os.getenv("TENCENT_TTS_REGION", "ap-beijing")
         
         # 应用预设配置的推荐设置
         self._apply_preset_settings()

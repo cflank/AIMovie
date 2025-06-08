@@ -312,16 +312,34 @@ class CloudTTSAgent:
             
             # 获取可用的TTS服务
             available_services = settings.get_available_tts_services()
+            logger.info(f"可用TTS服务: {available_services}")
+            logger.info(f"服务类型: {type(available_services)}")
+            
             if not available_services:
                 raise ValueError("没有可用的TTS服务")
             
             # 按优先级尝试合成
             for i, service in enumerate(available_services):
-                service_name = service["name"]
+                logger.info(f"处理服务 {i}: {service}, 类型: {type(service)}")
+                
+                # 处理服务名称映射
+                if isinstance(service, dict):
+                    service_name = service["name"]
+                    display_name = service.get("display_name", service_name)
+                else:
+                    # 字符串格式，需要映射到内部服务名
+                    service_display_name = service
+                    service_name_mapping = {
+                        "阿里云TTS": "aliyun",
+                        "腾讯TTS": "tencent", 
+                        "Edge-TTS": "edge"
+                    }
+                    service_name = service_name_mapping.get(service, service.lower())
+                    display_name = service
                 
                 try:
                     if progress_callback:
-                        progress_callback(0.2 + i * 0.3, f"使用{service['display_name']}合成...")
+                        progress_callback(0.2 + i * 0.3, f"使用{display_name}合成...")
                     
                     voice = self._get_voice_mapping(service_name, voice_style)
                     if not voice:
@@ -350,13 +368,13 @@ class CloudTTSAgent:
                     
                     if audio_path and Path(audio_path).exists():
                         if progress_callback:
-                            progress_callback(1.0, f"语音合成完成! 使用{service['display_name']}")
+                            progress_callback(1.0, f"语音合成完成! 使用{display_name}")
                         
-                        logger.info(f"语音合成成功: {service['display_name']}, 文件: {audio_path}")
+                        logger.info(f"语音合成成功: {display_name}, 文件: {audio_path}")
                         return audio_path
                     
                 except Exception as e:
-                    logger.warning(f"{service['display_name']}合成失败: {e}")
+                    logger.warning(f"{display_name}合成失败: {e}")
                     continue
             
             raise ValueError("所有TTS服务都失败了")
@@ -406,7 +424,10 @@ class CloudTTSAgent:
                         progress = (i / total_segments) * 0.9
                         progress_callback(progress, f"合成第{i+1}/{total_segments}段...")
                     
-                    text = segment.get("content", "").strip()
+                    # 添加调试信息
+                    logger.info(f"处理第{i+1}段: {type(segment)}, 内容: {segment}")
+                    
+                    text = segment.get("text", segment.get("content", "")).strip()
                     if not text:
                         logger.warning(f"第{i+1}段内容为空，跳过")
                         continue

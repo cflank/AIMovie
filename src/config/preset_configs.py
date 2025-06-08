@@ -337,23 +337,25 @@ class PresetConfigManager:
             "recommendations": []
         }
         
+        # 统一使用真实模式
+        
         # 检查LLM服务
         for service in config.llm_services:
-            if all(key in env_vars and env_vars[key] for key in service.required_keys):
+            if all(key in env_vars and env_vars[key] and not env_vars[key].startswith("your_") for key in service.required_keys):
                 validation_result["available_services"]["llm"].append(service.name)
             else:
                 validation_result["missing_keys"].extend(service.required_keys)
         
         # 检查TTS服务
         for service in config.tts_services:
-            if not service.required_keys or all(key in env_vars and env_vars[key] for key in service.required_keys):
+            if not service.required_keys or all(key in env_vars and env_vars[key] and not env_vars[key].startswith("your_") for key in service.required_keys):
                 validation_result["available_services"]["tts"].append(service.name)
             else:
                 validation_result["missing_keys"].extend(service.required_keys)
         
         # 检查视觉服务
         for service in config.vision_services:
-            if all(key in env_vars and env_vars[key] for key in service.required_keys):
+            if all(key in env_vars and env_vars[key] and not env_vars[key].startswith("your_") for key in service.required_keys):
                 validation_result["available_services"]["vision"].append(service.name)
             else:
                 validation_result["missing_keys"].extend(service.required_keys)

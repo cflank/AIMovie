@@ -223,7 +223,39 @@ def check_env_file():
     
     # 加载环境变量
     from dotenv import load_dotenv
-    load_dotenv()
+    env_path = project_root / '.env'
+    
+    # 尝试多种编码方式加载
+    try:
+        # 首先尝试默认加载
+        result = load_dotenv(dotenv_path=env_path)
+        logger.info(f"环境变量加载结果: {result}")
+        
+        # 验证关键变量是否加载
+        preset_config = os.getenv('PRESET_CONFIG')
+        logger.info(f"PRESET_CONFIG: {preset_config}")
+        
+        # 如果关键变量未加载，尝试指定编码
+        if not preset_config:
+            logger.warning("尝试使用UTF-8编码重新加载.env文件")
+            result = load_dotenv(dotenv_path=env_path, encoding='utf-8')
+            logger.info(f"UTF-8加载结果: {result}")
+            
+            
+    except Exception as e:
+        logger.error(f"加载环境变量失败: {e}")
+        # 尝试手动解析
+        try:
+            logger.info("尝试手动解析.env文件")
+            with open(env_path, 'r', encoding='utf-8') as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        os.environ[key.strip()] = value.strip()
+                        logger.debug(f"手动设置: {key.strip()}={value.strip()}")
+        except Exception as manual_error:
+            logger.error(f"手动解析也失败: {manual_error}")
     
     logger.info("环境配置文件检查完成")
 

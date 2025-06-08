@@ -279,20 +279,31 @@ async def estimate_cost(
 async def upload_video(file: UploadFile = File(...)):
     """上传视频文件"""
     try:
+        logger.info(f"开始上传视频文件: {file.filename}, 大小: {file.size}")
+        
+        # 检查文件名
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="文件名不能为空")
+        
+        # 检查文件格式
         if not file.filename.lower().endswith(tuple(settings.SUPPORTED_VIDEO_FORMATS)):
             raise HTTPException(
                 status_code=400,
                 detail=f"不支持的视频格式。支持的格式: {settings.SUPPORTED_VIDEO_FORMATS}"
             )
         
-        if file.size > settings.MAX_FILE_SIZE:
+        # 检查文件大小
+        if file.size and file.size > settings.MAX_FILE_SIZE:
             raise HTTPException(
                 status_code=400,
                 detail=f"文件过大。最大支持 {settings.MAX_FILE_SIZE // (1024*1024)}MB"
             )
         
+        # 确保上传目录存在
+        settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        
         # 保存文件
-        file_path = await save_uploaded_file(file, settings.UPLOAD_DIR)
+        file_path = await save_uploaded_file(file, str(settings.UPLOAD_DIR))
         
         logger.info(f"视频上传成功: {file_path}")
         return {
@@ -302,14 +313,23 @@ async def upload_video(file: UploadFile = File(...)):
             "filename": file.filename
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"视频上传失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = f"视频上传失败: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise HTTPException(status_code=500, detail=error_msg)
 
 @app.post("/upload/subtitle")
 async def upload_subtitle(file: UploadFile = File(...)):
     """上传字幕文件"""
     try:
+        logger.info(f"开始上传字幕文件: {file.filename}, 大小: {file.size}")
+        
+        # 检查文件名
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="文件名不能为空")
+        
         # 支持的字幕格式
         supported_formats = ['.srt', '.vtt', '.ass', '.ssa', '.txt']
         file_ext = Path(file.filename).suffix.lower()
@@ -320,14 +340,18 @@ async def upload_subtitle(file: UploadFile = File(...)):
                 detail=f"不支持的字幕格式。支持的格式: {supported_formats}"
             )
         
-        if file.size > 10 * 1024 * 1024:  # 10MB限制
+        # 检查文件大小
+        if file.size and file.size > 10 * 1024 * 1024:  # 10MB限制
             raise HTTPException(
                 status_code=400,
                 detail="字幕文件过大。最大支持 10MB"
             )
         
+        # 确保上传目录存在
+        settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        
         # 保存文件
-        file_path = await save_uploaded_file(file, settings.UPLOAD_DIR)
+        file_path = await save_uploaded_file(file, str(settings.UPLOAD_DIR))
         
         logger.info(f"字幕上传成功: {file_path}")
         return {
@@ -338,9 +362,12 @@ async def upload_subtitle(file: UploadFile = File(...)):
             "format": file_ext
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"字幕上传失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = f"字幕上传失败: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise HTTPException(status_code=500, detail=error_msg)
 
 @app.get("/files/list")
 async def list_files(file_type: str = "all"):
@@ -380,20 +407,42 @@ async def list_files(file_type: str = "all"):
 async def download_file(file_type: str, filename: str):
     """下载文件"""
     try:
+        # 支持多种文件类型
         if file_type == "input":
             file_path = settings.UPLOAD_DIR / filename
         elif file_type == "output":
             file_path = settings.OUTPUT_DIR / filename
+        elif file_type == "video":
+            # 视频文件通常在输出目录
+            file_path = settings.OUTPUT_DIR / filename
+        elif file_type == "text":
+            # 文本文件通常在输出目录
+            file_path = settings.OUTPUT_DIR / filename
+        elif file_type == "audio":
+            # 音频文件通常在输出目录
+            file_path = settings.OUTPUT_DIR / filename
         else:
-            raise HTTPException(status_code=400, detail="无效的文件类型")
+            raise HTTPException(status_code=400, detail=f"不支持的文件类型: {file_type}")
         
         if not file_path.exists():
+            logger.error(f"文件不存在: {file_path}")
             raise HTTPException(status_code=404, detail="文件不存在")
+        
+        # 根据文件扩展名设置合适的媒体类型
+        media_type = 'application/octet-stream'
+        if filename.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+            media_type = 'video/mp4'
+        elif filename.lower().endswith(('.mp3', '.wav', '.m4a')):
+            media_type = 'audio/mpeg'
+        elif filename.lower().endswith(('.txt', '.srt', '.vtt')):
+            media_type = 'text/plain'
+        elif filename.lower().endswith('.json'):
+            media_type = 'application/json'
         
         return FileResponse(
             path=str(file_path),
             filename=filename,
-            media_type='application/octet-stream'
+            media_type=media_type
         )
         
     except Exception as e:
@@ -409,6 +458,44 @@ async def cleanup_files():
     except Exception as e:
         logger.error(f"文件清理失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/upload/test")
+async def test_upload(file: UploadFile = File(...)):
+    """测试上传功能"""
+    try:
+        logger.info(f"测试上传: {file.filename}, 大小: {file.size}, 类型: {file.content_type}")
+        
+        # 读取文件内容
+        content = await file.read()
+        logger.info(f"成功读取文件内容: {len(content)} 字节")
+        
+        # 检查上传目录
+        upload_dir = settings.UPLOAD_DIR
+        logger.info(f"上传目录: {upload_dir}, 存在: {upload_dir.exists()}")
+        
+        # 创建目录
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"目录创建后存在: {upload_dir.exists()}")
+        
+        # 保存文件
+        file_path = upload_dir / file.filename
+        with open(file_path, 'wb') as f:
+            f.write(content)
+        
+        logger.info(f"文件保存成功: {file_path}")
+        
+        return {
+            "message": "测试上传成功",
+            "filename": file.filename,
+            "size": len(content),
+            "path": str(file_path),
+            "exists": file_path.exists()
+        }
+        
+    except Exception as e:
+        error_msg = f"测试上传失败: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise HTTPException(status_code=500, detail=error_msg)
 
 # ==========================================
 # 视频分析
@@ -867,6 +954,13 @@ async def batch_synthesize(request: BatchTTSRequest, background_tasks: Backgroun
     
     async def batch_tts_task():
         try:
+            # 添加调试信息
+            logger.info(f"TTS批量合成开始: 段落数={len(request.segments)}, 语音风格={request.voice_style}")
+            logger.info(f"段落数据类型: {type(request.segments)}")
+            if request.segments:
+                logger.info(f"第一个段落: {request.segments[0]}")
+                logger.info(f"第一个段落类型: {type(request.segments[0])}")
+            
             result = await tts_agent.synthesize_narration(
                 request.segments,
                 request.voice_style,
@@ -1212,14 +1306,14 @@ def start_server():
     logger.info(f"API文档地址: http://{settings.API_HOST}:{settings.API_PORT}/docs")
     logger.info("可用服务:")
     
-    for service in settings.get_available_llm_services():
-        logger.info(f"  - LLM: {service['display_name']}")
+    for service_name in settings.get_available_llm_services():
+        logger.info(f"  - LLM: {service_name}")
     
-    for service in settings.get_available_tts_services():
-        logger.info(f"  - TTS: {service['display_name']}")
+    for service_name in settings.get_available_tts_services():
+        logger.info(f"  - TTS: {service_name}")
     
-    for service in settings.get_available_video_services():
-        logger.info(f"  - 视频分析: {service['display_name']}")
+    for service_name in settings.get_available_video_services():
+        logger.info(f"  - 视频分析: {service_name}")
     
     # 启动服务器
     uvicorn.run(
